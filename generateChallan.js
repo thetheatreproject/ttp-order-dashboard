@@ -14,11 +14,13 @@ const COMPANY = {
  * landscape orientation.
  */
 function generateChallanPdf(order, enrichedLineItems, outputDir) {
-  const fileName = `challan_${order.orderId.replace("#", "")}_${Date.now()}.pdf`;
-  const filePath = path.join(outputDir, fileName);
+  return new Promise((resolve, reject) => {
+    const fileName = `challan_${order.orderId.replace("#", "")}_${Date.now()}.pdf`;
+    const filePath = path.join(outputDir, fileName);
 
-  const doc = new PDFDocument({ size: "A4", layout: "landscape", margin: 20 });
-  doc.pipe(fs.createWriteStream(filePath));
+    const doc = new PDFDocument({ size: "A4", layout: "landscape", margin: 20 });
+    const stream = fs.createWriteStream(filePath);
+    doc.pipe(stream);
 
   const pageLeft = 20;
   const pageRight = doc.page.width - 20;
@@ -240,7 +242,9 @@ function generateChallanPdf(order, enrichedLineItems, outputDir) {
 
   doc.end();
 
-  return filePath;
+  stream.on("finish", () => resolve(filePath));
+  stream.on("error", reject);
+  });
 }
 
 function formatDate(dateStr) {

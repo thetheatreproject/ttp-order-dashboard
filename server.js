@@ -115,7 +115,7 @@ app.post("/api/shopify/orders/:id/challan", async (req, res) => {
       totalOrdersCount: order.lineItems.reduce((sum, li) => sum + li.quantity, 0),
     };
 
-    const pdfPath = generateChallanPdf(challanOrder, enrichedLineItems, OUTPUT_DIR);
+    const pdfPath = await generateChallanPdf(challanOrder, enrichedLineItems, OUTPUT_DIR);
     res.json({ url: `/files/${path.basename(pdfPath)}`, stockDeducted: !previous });
   } catch (err) {
     console.error(err);
@@ -129,7 +129,7 @@ app.post("/api/shopify/orders/:id/invoice", async (req, res) => {
     const order = await getOrderById(req.params.id);
     if (!order) return res.status(404).json({ error: "Order not found" });
 
-    const pdfPath = generateInvoicePdf(order, order.lineItems, OUTPUT_DIR);
+    const pdfPath = await generateInvoicePdf(order, order.lineItems, OUTPUT_DIR);
     res.json({ url: `/files/${path.basename(pdfPath)}` });
   } catch (err) {
     console.error(err);
@@ -178,7 +178,7 @@ app.post("/api/custom/challan", async (req, res) => {
       totalPrice: isSample ? 0 : undefined, // undefined -> generateChallanPdf sums line items
     };
 
-    const pdfPath = generateChallanPdf(order, enrichedLineItems, OUTPUT_DIR);
+    const pdfPath = await generateChallanPdf(order, enrichedLineItems, OUTPUT_DIR);
     res.json({ url: `/files/${path.basename(pdfPath)}` });
   } catch (err) {
     console.error(err);

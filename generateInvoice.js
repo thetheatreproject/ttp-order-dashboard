@@ -48,11 +48,13 @@ function stateCode(stateName) {
  *   0% GST) — pass a value per line item if some products carry GST.
  */
 function generateInvoicePdf(order, lineItems, outputDir) {
-  const fileName = `invoice_${order.orderId.replace("#", "")}_${Date.now()}.pdf`;
-  const filePath = path.join(outputDir, fileName);
+  return new Promise((resolve, reject) => {
+    const fileName = `invoice_${order.orderId.replace("#", "")}_${Date.now()}.pdf`;
+    const filePath = path.join(outputDir, fileName);
 
-  const doc = new PDFDocument({ size: "A4", margin: 40 });
-  doc.pipe(fs.createWriteStream(filePath));
+    const doc = new PDFDocument({ size: "A4", margin: 40 });
+    const stream = fs.createWriteStream(filePath);
+    doc.pipe(stream);
 
   const pageLeft = 40;
   const pageRight = doc.page.width - 40;
@@ -276,7 +278,12 @@ function generateInvoicePdf(order, lineItems, outputDir) {
 
   doc.end();
 
-  return filePath;
+  // Wait for the write stream to fully flush to disk before resolving —
+  // otherwise the caller can serve a partially-written/corrupt PDF if it
+  // responds before the file finishes writing.
+  stream.on("finish", () => resolve(filePath));
+  stream.on("error", reject);
+  });
 }
 
 function round2(n) {
