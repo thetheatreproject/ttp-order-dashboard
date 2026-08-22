@@ -11,6 +11,16 @@ const CATEGORY_TABS = [
   "Nachos",
 ];
 
+// A separate tab mapping what's actually SOLD (e.g. "Cheddar Cheese Gourmet
+// Popcorn Pack of 10" on Shopify) to what's TRACKED in the category tabs.
+// Since the same Base Product Name can appear at multiple grammage/MRP
+// variants in a category tab (e.g. 30g/Rs30 and 60g/Rs60), Grammage and MRP
+// are included here too, to pin down the exact variant being sold. This tab
+// needs to be created manually in the master sheet with these exact column
+// headers:
+//   Website Product Name | Base Product Name | Grammage | MRP | Units Per Pack
+const MAPPING_TAB = "Website Product Mapping";
+
 let sheetsClientPromise = null;
 
 async function getSheetsClient() {
@@ -101,12 +111,22 @@ function colLetter(index) {
 /**
  * Finds every batch row across all category tabs matching a product name
  * exactly (case-insensitive, trimmed), sorted by Priority ascending — the
- * order batches should be used in.
+ * order batches should be used in. If grammage/mrp are provided, also
+ * filters to that exact variant — needed since the same product name can
+ * appear at multiple grammage/MRP combinations in a category tab.
  */
-async function findProductBatches(productName) {
+async function findProductBatches(productName, grammage = null, mrp = null) {
   const target = productName.trim().toLowerCase();
   const allTabs = await Promise.all(CATEGORY_TABS.map(loadTab));
-  const matches = allTabs.flat().filter((item) => item.productName.toLowerCase() === target);
+  let matches = allTabs.flat().filter((item) => item.productName.toLowerCase() === target);
+
+  if (grammage) {
+    matches = matches.filter((item) => String(item.grammage).trim() === String(grammage).trim());
+  }
+  if (mrp) {
+    matches = matches.filter((item) => String(item.mrp).trim() === String(mrp).trim());
+  }
+
   matches.sort((a, b) => a.priority - b.priority);
   return matches;
 }
@@ -114,17 +134,19 @@ async function findProductBatches(productName) {
 /**
  * Deducts the given quantity for a product across its priority-ordered
  * batches (lowest priority number first), writing the new Quantity back to
- * each affected cell. Returns the batch/grammage/mrp info needed for the
- * challan line item.
+ * each affected cell. Pass grammage/mrp to pin down the exact variant when
+ * a product name has multiple grammage/MRP rows. Returns the batch/
+ * grammage/mrp info needed for the challan line item.
  *
  * Throws if the product isn't found, or total stock across all its batches
  * is insufficient — callers should surface this clearly rather than
  * silently generating a challan with wrong data.
  */
-async function deductStock(productName, quantityNeeded) {
-  const batches = await findProductBatches(productName);
+async function deductStock(productName, quantityNeeded, grammage = null, mrp = null) {
+  const batches = await findProductBatches(productName, grammage, mrp);
   if (batches.length === 0) {
-    throw new Error(`Product "${productName}" not found in master sheet (check spelling matches exactly)`);
+    const variant = grammage || mrp ? ` (grammage: ${grammage || "any"}, MRP: ${mrp || "any"})` : "";
+    throw new Error(`Product "${productName}"${variant} not found in master sheet (check spelling/grammage/MRP match exactly)`);
   }
 
   const totalAvailable = batches.reduce((sum, b) => sum + b.quantity, 0);
@@ -210,4 +232,44 @@ async function listProductsForDropdown() {
   });
 }
 
-module.exports = { findProductBatches, deductStock, listProductsForDropdown, CATEGORY_TABS };
+module.exports = { findProductBatches, deductStock, listProductsForDropdown, resolveWebsiteProduct, CATEGORY_TABS };
+
+/**
+ * Looks up a website-facing product name (as it appears on a Shopify/Amazon
+ * order) in the "Website Product Mapping" tab, returning the underlying
+ * base product name + exact grammage/MRP variant (matching a specific row
+ * in a category tab) and how many base units one sale represents.
+ *
+ * Returns null if there's no mapping entry — callers should treat this as
+ * "we don't know how to deduct stock for this product" rather than
+ * guessing, since a wrong guess here silently corrupts stock counts.
+ */
+async function resolveWebsiteProduct(websiteProductName) {
+  const sheets = await getSheetsClient();
+  const res = await sheets.spreadsheets.values.get({
+    spreadsheetId: process.env.MASTER_SHEET_ID,
+    range: `'${MAPPING_TAB}'!A1:E500`,
+  });
+
+  const rows = res.data.values || [];
+  const header = rows[0] || [];
+  const nameCol = header.indexOf("Website Product Name");
+  const baseCol = header.indexOf("Base Product Name");
+  const grammageCol = header.indexOf("Grammage");
+  const mrpCol = header.indexOf("MRP");
+  const unitsCol = header.indexOf("Units Per Pack");
+
+  const target = websiteProductName.trim().toLowerCase();
+  for (let i = 1; i < rows.length; i++) {
+    const row = rows[i];
+    if ((row[nameCol] || "").trim().toLowerCase() === target) {
+      return {
+        baseProductName: row[baseCol],
+        grammage: row[grammageCol],
+        mrp: row[mrpCol],
+        unitsPerPack: parseInt(row[unitsCol], 10) || 1,
+      };
+    }
+  }
+  return null;
+}

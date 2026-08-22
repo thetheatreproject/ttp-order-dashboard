@@ -5,7 +5,7 @@ const fs = require("fs");
 const crypto = require("crypto");
 
 const { getOrderById, listRecentOrders } = require("./shopify");
-const { deductStock, listProductsForDropdown } = require("./masterSheet");
+const { deductStock, listProductsForDropdown, resolveWebsiteProduct } = require("./masterSheet");
 const { generateChallanPdf } = require("./generateChallan");
 const { getPreviousChallan, recordChallan } = require("./challanLog");
 
@@ -83,8 +83,27 @@ app.post("/api/shopify/orders/:id/challan", async (req, res) => {
     } else {
       enrichedLineItems = [];
       for (const li of order.lineItems) {
-        const batchInfo = await deductStock(li.title, li.quantity);
-        enrichedLineItems.push({ ...li, ...batchInfo, quantity: li.quantity });
+        const mapping = await resolveWebsiteProduct(li.title);
+        if (!mapping) {
+          return res.status(422).json({
+            error: `"${li.title}" has no entry in the Website Product Mapping tab — add it before generating this challan (Website Product Name, Base Product Name, Units Per Pack).`,
+          });
+        }
+        const baseQuantityNeeded = li.quantity * mapping.unitsPerPack;
+        const batchInfo = await deductStock(
+          mapping.baseProductName,
+          baseQuantityNeeded,
+          mapping.grammage,
+          mapping.mrp
+        );
+        enrichedLineItems.push({
+          ...li,
+          ...batchInfo,
+          // Show what was actually sold (e.g. "Pack of 10") on the challan,
+          // but the batch/stock info reflects the real base units deducted.
+          title: li.title,
+          quantity: baseQuantityNeeded,
+        });
       }
       recordChallan(logKey, enrichedLineItems);
     }
