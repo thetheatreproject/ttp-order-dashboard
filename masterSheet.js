@@ -15,10 +15,16 @@ let sheetsClientPromise = null;
 
 async function getSheetsClient() {
   if (!sheetsClientPromise) {
-    const auth = new google.auth.GoogleAuth({
-      keyFile: process.env.GOOGLE_SERVICE_ACCOUNT_KEY_FILE,
-      scopes: ["https://www.googleapis.com/auth/spreadsheets"], // read+write
-    });
+    // On Render (and similar hosts), the service account JSON is passed as
+    // an environment variable's raw content rather than a file on disk.
+    // Falls back to a file path for local development.
+    const authOptions = { scopes: ["https://www.googleapis.com/auth/spreadsheets"] };
+    if (process.env.GOOGLE_SERVICE_ACCOUNT_JSON) {
+      authOptions.credentials = JSON.parse(process.env.GOOGLE_SERVICE_ACCOUNT_JSON);
+    } else {
+      authOptions.keyFile = process.env.GOOGLE_SERVICE_ACCOUNT_KEY_FILE;
+    }
+    const auth = new google.auth.GoogleAuth(authOptions);
     sheetsClientPromise = auth.getClient().then((client) => google.sheets({ version: "v4", auth: client }));
   }
   return sheetsClientPromise;
