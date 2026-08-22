@@ -74,22 +74,44 @@ async function loadTab(tabName) {
   }
 
   const items = [];
+  let currentProductName = null;
+  let currentProductType = null;
+
   for (let i = 1; i < rows.length; i++) {
     const row = rows[i];
-    const productName = colIndex.productName >= 0 ? row[colIndex.productName] : null;
-    if (!productName) continue; // skip blank rows
+    const rawProductName = colIndex.productName >= 0 ? row[colIndex.productName] : null;
+    const rawProductType = colIndex.productType >= 0 ? row[colIndex.productType] : null;
+
+    // The sheet only fills in Product Name/Type on the first row of each
+    // product's group of variant rows (different grammage/MRP), leaving
+    // the rows below it blank. Forward-fill from the last seen values so
+    // every variant row is correctly attributed to its product.
+    if (rawProductName && rawProductName.trim()) {
+      currentProductName = rawProductName.trim();
+    }
+    if (rawProductType && rawProductType.trim()) {
+      currentProductType = rawProductType.trim();
+    }
+
+    const mrp = colIndex.mrp >= 0 ? row[colIndex.mrp] : null;
+    const grammage = colIndex.grammage >= 0 ? row[colIndex.grammage] : null;
+    const quantityRaw = colIndex.quantity >= 0 ? row[colIndex.quantity] : null;
+
+    // Skip genuinely empty template rows (no product context yet, or no
+    // MRP/grammage/quantity at all — these are just blank spacer rows).
+    if (!currentProductName || (!mrp && !grammage && !quantityRaw)) continue;
 
     items.push({
       tab: tabName,
       rowNumber: i + 1, // 1-indexed to match sheet row numbers
-      productType: row[colIndex.productType] || "",
-      productName: productName.trim(),
-      mrp: row[colIndex.mrp] || "",
-      grammage: row[colIndex.grammage] || "",
+      productType: currentProductType || "",
+      productName: currentProductName,
+      mrp: mrp || "",
+      grammage: grammage || "",
       batchNumber: row[colIndex.batchNumber] || "",
       mfd: row[colIndex.mfd] || "",
       exp: row[colIndex.exp] || "",
-      quantity: parseInt(row[colIndex.quantity], 10) || 0,
+      quantity: parseInt(quantityRaw, 10) || 0,
       priority: parseInt(row[colIndex.priority], 10) || 999999,
       quantityColLetter: colIndex.quantity >= 0 ? colLetter(colIndex.quantity) : null,
     });
@@ -109,11 +131,30 @@ function colLetter(index) {
 }
 
 /**
+ * Normalizes a grammage/weight value for comparison by stripping any
+ * non-numeric characters (so "30g", "30 g", "30", 30 all compare equal).
+ */
+function normalizeGrammage(val) {
+  return String(val).replace(/[^0-9.]/g, "").trim();
+}
+
+/**
+ * Normalizes an MRP value for comparison (strips currency symbols/commas,
+ * compares as a number so "30", "30.00", "Rs 30" all compare equal).
+ */
+function normalizeMrp(val) {
+  const num = parseFloat(String(val).replace(/[^0-9.]/g, ""));
+  return isNaN(num) ? null : num;
+}
+
+/**
  * Finds every batch row across all category tabs matching a product name
  * exactly (case-insensitive, trimmed), sorted by Priority ascending — the
  * order batches should be used in. If grammage/mrp are provided, also
  * filters to that exact variant — needed since the same product name can
- * appear at multiple grammage/MRP combinations in a category tab.
+ * appear at multiple grammage/MRP combinations in a category tab. Grammage
+ * and MRP comparisons are normalized (units/formatting-tolerant) so "30g"
+ * in a mapping tab matches "30" in the category tab.
  */
 async function findProductBatches(productName, grammage = null, mrp = null) {
   const target = productName.trim().toLowerCase();
@@ -121,10 +162,12 @@ async function findProductBatches(productName, grammage = null, mrp = null) {
   let matches = allTabs.flat().filter((item) => item.productName.toLowerCase() === target);
 
   if (grammage) {
-    matches = matches.filter((item) => String(item.grammage).trim() === String(grammage).trim());
+    const targetGrammage = normalizeGrammage(grammage);
+    matches = matches.filter((item) => normalizeGrammage(item.grammage) === targetGrammage);
   }
   if (mrp) {
-    matches = matches.filter((item) => String(item.mrp).trim() === String(mrp).trim());
+    const targetMrp = normalizeMrp(mrp);
+    matches = matches.filter((item) => normalizeMrp(item.mrp) === targetMrp);
   }
 
   matches.sort((a, b) => a.priority - b.priority);
