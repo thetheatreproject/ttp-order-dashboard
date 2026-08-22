@@ -92,6 +92,7 @@ function normalizeOrder(order) {
       ? `${order.customer.first_name || ""} ${order.customer.last_name || ""}`.trim()
       : (order.shipping_address ? order.shipping_address.name : "N/A"),
     customerOrdersCount: order.customer ? order.customer.orders_count : 0,
+    customerPhone: order.shipping_address?.phone || order.customer?.phone || order.phone || "",
     shippingAddress: order.shipping_address,
     lineItems: order.line_items.map((li) => ({
       sku: li.sku,

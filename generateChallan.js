@@ -2,7 +2,6 @@ const PDFDocument = require("pdfkit");
 const fs = require("fs");
 const path = require("path");
 
-// Fixed company details (from the reference challan)
 const COMPANY = {
   cin: "U7499MH2019PTC33358",
   name: "SHREE ASHTAVINAYAK THEATRE VENTURES PVT. LTD",
@@ -11,90 +10,107 @@ const COMPANY = {
 };
 
 /**
- * Generates a challan PDF matching the reference "3674_challan.pdf" layout.
- *
- * order: {
- *   orderId, createdAt, customerName,
- *   shippingAddress: { address1, address2, city, province, zip },
- *   orderType,          // e.g. "New Order" / "Repeat Order"
- *   totalOrdersCount,   // "TOTAL NUMBER OF ORDERS" field
- *   logisticPartner,    // optional, usually filled by hand
- *   challanNo,          // optional, usually filled by hand
- *   totalPrice,         // actual order total from Shopify — used for the TOTAL row
- * }
- * enrichedLineItems: [{ title, grammage, mrp, quantity, batchNo, mfgDate }]
+ * Generates a challan PDF matching the reference challan layout, in
+ * landscape orientation.
  */
 function generateChallanPdf(order, enrichedLineItems, outputDir) {
   const fileName = `challan_${order.orderId.replace("#", "")}_${Date.now()}.pdf`;
   const filePath = path.join(outputDir, fileName);
 
-  const doc = new PDFDocument({ size: "A4", margin: 20 });
+  const doc = new PDFDocument({ size: "A4", layout: "landscape", margin: 20 });
   doc.pipe(fs.createWriteStream(filePath));
 
   const pageLeft = 20;
-  const pageRight = 575; // A4 width 595 - margin 20
+  const pageRight = doc.page.width - 20;
+  const pageBottom = doc.page.height - 20;
   const fullWidth = pageRight - pageLeft;
 
-  // Column boundaries for the top info block (label | value | rightLabel | rightValue)
   const c1 = pageLeft;
-  const c2 = pageLeft + fullWidth * 0.26;
+  const c2 = pageLeft + fullWidth * 0.17; // tighter label column, was too wide in landscape
   const c3 = pageLeft + fullWidth * 0.735;
   const c4 = pageLeft + fullWidth * 0.845;
 
-  const rowH = 22;
+  const rowH = 20;
   let y = 20;
 
-  // Writes text on a single line, auto-shrinking the font until it fits the
-  // given width (down to minSize), instead of wrapping and overlapping rows.
   function fitText(text, x, yy, w, opts = {}) {
     const str = text || "";
     const font = opts.font || "Helvetica";
     const maxSize = opts.fontSize || 9;
     const minSize = opts.minSize || 6;
+    const available = w - 8;
+    const boxHeight = opts.rowHeight || rowH;
     let size = maxSize;
     doc.font(font);
-    while (size > minSize && doc.fontSize(size).widthOfString(str) > w - 8) {
+    while (size > minSize && doc.fontSize(size).widthOfString(str) > available) {
       size -= 0.5;
     }
     doc.fontSize(size);
+
+    let finalStr = str;
+    if (doc.widthOfString(finalStr) > available) {
+      while (finalStr.length > 1 && doc.widthOfString(finalStr + "...") > available) {
+        finalStr = finalStr.slice(0, -1);
+      }
+      finalStr = finalStr.length > 1 ? finalStr + "..." : finalStr;
+    }
+
     const textHeight = doc.currentLineHeight();
-    const vPad = Math.max(0, (rowH - textHeight) / 2) - 2;
-    doc.text(str, x + 4, yy + vPad, { width: w - 8, align: opts.align || "left", lineBreak: false });
+    const vPad = Math.max(0, (boxHeight - textHeight) / 2);
+    doc.text(finalStr, x + 4, yy + vPad, { width: available, align: opts.align || "left", lineBreak: false });
   }
 
-  function hLine(yy) {
-    doc.moveTo(pageLeft, yy).lineTo(pageRight, yy).stroke();
+  function hLine(yy, xStart = pageLeft, xEnd = pageRight) {
+    doc.moveTo(xStart, yy).lineTo(xEnd, yy).stroke();
   }
-  function vLine(x, y1, y2) {
+  function vLineSeg(x, y1, y2) {
     doc.moveTo(x, y1).lineTo(x, y2).stroke();
   }
 
   doc.lineWidth(0.75);
 
+  // Each header row explicitly declares which internal vertical dividers it
+  // has (besides the outer pageLeft/pageRight edges), since rows differ:
+  // some are 4-column (label|value|label|value), some are 2-column
+  // (label|value spanning the rest), avoiding the earlier bug where a
+  // single continuous vertical line was drawn across rows with different
+  // structures.
+  const rowTops = [];
+
+  function startRow(dividers) {
+    rowTops.push({ top: y, dividers });
+  }
+
   // ---- Row 1: CIN | Company Name | CHALLAN NO | value ----
+  startRow([c2, c3, c4]);
   fitText(`CIN: ${COMPANY.cin}`, c1, y, c2 - c1, { font: "Helvetica-Bold", fontSize: 8 });
   fitText(COMPANY.name, c2, y, c3 - c2, { font: "Helvetica-Bold", fontSize: 10, align: "center" });
   fitText("CHALLAN NO :", c3, y, c4 - c3, { font: "Helvetica-Bold", fontSize: 8 });
   fitText(order.challanNo || "", c4, y, pageRight - c4, { font: "Helvetica-Bold", fontSize: 9 });
   y += rowH;
 
-  // ---- Row 2: GST | Address (spans to end) ----
+  // ---- Row 2: GST | Company Address (spans full remaining width) ----
+  startRow([c2]);
   fitText(`GST : ${COMPANY.gst}`, c1, y, c2 - c1, { font: "Helvetica-Bold", fontSize: 8 });
-  fitText(COMPANY.address, c2, y, pageRight - c2, {
-    font: "Helvetica-Oblique",
-    fontSize: 8,
-    align: "center",
-  });
+  fitText(COMPANY.address, c2, y, pageRight - c2, { font: "Helvetica-Oblique", fontSize: 8, align: "center" });
   y += rowH;
 
   // ---- Row 3: CONSIGNEE NAME | value | ORDER | date ----
+  startRow([c2, c3, c4]);
   fitText("CONSIGNEE NAME :", c1, y, c2 - c1, { font: "Helvetica-Bold", fontSize: 8 });
   fitText(order.customerName || "", c2, y, c3 - c2, { font: "Helvetica-Bold", fontSize: 9 });
   fitText("ORDER", c3, y, c4 - c3, { font: "Helvetica-Bold", fontSize: 8 });
   fitText(formatDate(order.createdAt), c4, y, pageRight - c4, { font: "Helvetica-Bold", fontSize: 9 });
   y += rowH;
 
-  // ---- Row 4: CONSIGNEE LOCATION | value | DISPATCH | value ----
+  // ---- Row 4: CONSIGNEE NUMBER | value (spans full remaining width) ----
+  startRow([c2]);
+  fitText("CONSIGNEE NUMBER :", c1, y, c2 - c1, { font: "Helvetica-Bold", fontSize: 8 });
+  fitText(order.customerPhone || "", c2, y, pageRight - c2, { font: "Helvetica-Bold", fontSize: 9 });
+  y += rowH;
+
+  // ---- Row 5: CONSIGNEE LOCATION | value | DISPATCH | value ----
+  startRow([c2, c3, c4]);
   const addr = order.shippingAddress || {};
   const addrLine = [addr.address1, addr.address2, addr.city, addr.zip ? `- ${addr.zip}` : ""]
     .filter(Boolean)
@@ -106,38 +122,45 @@ function generateChallanPdf(order, enrichedLineItems, outputDir) {
   fitText(order.dispatch || "", c4, y, pageRight - c4, { font: "Helvetica-Bold", fontSize: 9 });
   y += rowH;
 
-  // ---- Row 5: CONSIGNEE STATE | value | VERIFIED BY | value ----
+  // ---- Row 6: CONSIGNEE STATE | value | VERIFIED BY | value ----
+  startRow([c2, c3, c4]);
   fitText("CONSIGNEE STATE:", c1, y, c2 - c1, { font: "Helvetica-Bold", fontSize: 8 });
   fitText(addr.province || "", c2, y, c3 - c2, { font: "Helvetica-Bold", fontSize: 9 });
   fitText("VERIFIED BY", c3, y, c4 - c3, { font: "Helvetica-Bold", fontSize: 8 });
   fitText(order.verifiedBy || "", c4, y, pageRight - c4, { font: "Helvetica-Bold", fontSize: 9 });
   y += rowH;
 
-  // ---- Row 6: TOTAL NUMBER OF ORDERS | value | ORDER TYPE | value ----
+  // ---- Row 7: TOTAL NUMBER OF ORDERS | value | ORDER TYPE | value ----
+  startRow([c2, c3, c4]);
   fitText("TOTAL NUMBER OF ORDERS:", c1, y, c2 - c1, { font: "Helvetica-Bold", fontSize: 8 });
   fitText(String(order.totalOrdersCount ?? ""), c2, y, c3 - c2, { font: "Helvetica-Bold", fontSize: 9 });
   fitText("ORDER TYPE", c3, y, c4 - c3, { font: "Helvetica-Bold", fontSize: 8 });
   fitText(order.orderType || "", c4, y, pageRight - c4, { font: "Helvetica-Bold", fontSize: 9 });
   y += rowH;
 
-  // ---- Row 7: LOGISTIC PARTNER (spans full width) ----
+  // ---- Row 8: LOGISTIC PARTNER | value (spans full remaining width) ----
+  startRow([c2]);
   fitText("LOGISTIC PARTNER :", c1, y, c2 - c1, { font: "Helvetica-Bold", fontSize: 8 });
   fitText(order.logisticPartner || "", c2, y, pageRight - c2, { font: "Helvetica-Bold", fontSize: 9 });
   y += rowH;
 
-  // ---- Row 8: ORDER NO (spans full width) ----
+  // ---- Row 9: ORDER NO | value (spans full remaining width) ----
+  startRow([c2]);
   fitText("ORDER NO:", c1, y, c2 - c1, { font: "Helvetica-Bold", fontSize: 8 });
   fitText(order.orderId.replace("#", ""), c2, y, pageRight - c2, { font: "Helvetica-Bold", fontSize: 9 });
   y += rowH;
 
-  // Draw horizontal + vertical lines for the info block (rows 1-8)
+  // Draw horizontal lines for every row boundary, and vertical dividers
+  // per-row based on each row's own declared structure.
   const infoTop = 20;
   for (let ry = infoTop; ry <= y; ry += rowH) hLine(ry);
-  vLine(c1, infoTop, y);
-  vLine(c2, infoTop, y - rowH * 2); // ends before LOGISTIC PARTNER/ORDER NO rows (full width)
-  vLine(c3, infoTop, y - rowH * 2);
-  vLine(c4, infoTop, y - rowH * 2);
-  vLine(pageRight, infoTop, y);
+  vLineSeg(pageLeft, infoTop, y);
+  vLineSeg(pageRight, infoTop, y);
+  for (const row of rowTops) {
+    for (const divider of row.dividers) {
+      vLineSeg(divider, row.top, row.top + rowH);
+    }
+  }
 
   // ---- Item table header ----
   const tCols = {
@@ -149,126 +172,71 @@ function generateChallanPdf(order, enrichedLineItems, outputDir) {
     qty: pageLeft + fullWidth * 0.9,
   };
   const tableHeaderTop = y;
-  fitText("DESCRIPTION OF GOODS", tCols.desc, y, tCols.grammage - tCols.desc, {
-    font: "Helvetica-Bold",
-    fontSize: 8,
-  });
-  fitText("GRAMMAGE", tCols.grammage, y, tCols.mrp - tCols.grammage, {
-    font: "Helvetica-Bold",
-    fontSize: 8,
-    align: "center",
-  });
-  fitText("MRP", tCols.mrp, y, tCols.batch - tCols.mrp, {
-    font: "Helvetica-Bold",
-    fontSize: 8,
-    align: "center",
-  });
-  fitText("BATCH NO", tCols.batch, y, tCols.mfg - tCols.batch, {
-    font: "Helvetica-Bold",
-    fontSize: 8,
-    align: "center",
-  });
-  fitText("MFG DATE", tCols.mfg, y, tCols.qty - tCols.mfg, {
-    font: "Helvetica-Bold",
-    fontSize: 8,
-    align: "center",
-  });
-  fitText("QUANTITY", tCols.qty, y, pageRight - tCols.qty, {
-    font: "Helvetica-Bold",
-    fontSize: 8,
-    align: "center",
-  });
+  fitText("DESCRIPTION OF GOODS", tCols.desc, y, tCols.grammage - tCols.desc, { font: "Helvetica-Bold", fontSize: 8 });
+  fitText("GRAMMAGE", tCols.grammage, y, tCols.mrp - tCols.grammage, { font: "Helvetica-Bold", fontSize: 8, align: "center" });
+  fitText("MRP", tCols.mrp, y, tCols.batch - tCols.mrp, { font: "Helvetica-Bold", fontSize: 8, align: "center" });
+  fitText("BATCH NO", tCols.batch, y, tCols.mfg - tCols.batch, { font: "Helvetica-Bold", fontSize: 8, align: "center" });
+  fitText("MFG DATE", tCols.mfg, y, tCols.qty - tCols.mfg, { font: "Helvetica-Bold", fontSize: 8, align: "center" });
+  fitText("QUANTITY", tCols.qty, y, pageRight - tCols.qty, { font: "Helvetica-Bold", fontSize: 8, align: "center" });
   y += rowH;
 
-  // ---- Item rows (pad to at least 14 rows like the reference, blank rows included) ----
-  const minRows = Math.max(enrichedLineItems.length, 14);
+  // ---- Item rows ----
   let computedTotal = 0;
-  for (let i = 0; i < minRows; i++) {
-    const item = enrichedLineItems[i];
+  const footerReserve = rowH * 2 + 18;
+  const minRowsTotal = Math.max(enrichedLineItems.length, 10);
+  let itemIndex = 0;
+  let pageTableTop = tableHeaderTop;
+
+  while (itemIndex < minRowsTotal) {
+    const item = enrichedLineItems[itemIndex];
     if (item) {
       const mrpNum = parseFloat(item.mrp) || 0;
       computedTotal += mrpNum * item.quantity;
-      fitText(item.title || item.productName || "", tCols.desc, y, tCols.grammage - tCols.desc, {
-        font: "Helvetica",
-        fontSize: 8,
-      });
-      fitText(item.grammage || "", tCols.grammage, y, tCols.mrp - tCols.grammage, {
-        font: "Helvetica",
-        fontSize: 8,
-        align: "center",
-      });
-      fitText(item.mrp ? String(item.mrp) : "", tCols.mrp, y, tCols.batch - tCols.mrp, {
-        font: "Helvetica",
-        fontSize: 8,
-        align: "center",
-      });
-      fitText(item.batchNo || "", tCols.batch, y, tCols.mfg - tCols.batch, {
-        font: "Helvetica",
-        fontSize: 8,
-        align: "center",
-      });
-      fitText(item.mfgDate || "", tCols.mfg, y, tCols.qty - tCols.mfg, {
-        font: "Helvetica",
-        fontSize: 8,
-        align: "center",
-      });
-      fitText(String(item.quantity), tCols.qty, y, pageRight - tCols.qty, {
-        font: "Helvetica",
-        fontSize: 8,
-        align: "center",
-      });
+      fitText(item.title || item.productName || "", tCols.desc, y, tCols.grammage - tCols.desc, { font: "Helvetica", fontSize: 8 });
+      fitText(item.grammage || "", tCols.grammage, y, tCols.mrp - tCols.grammage, { font: "Helvetica", fontSize: 8, align: "center" });
+      fitText(item.mrp ? String(item.mrp) : "", tCols.mrp, y, tCols.batch - tCols.mrp, { font: "Helvetica", fontSize: 8, align: "center" });
+      fitText(item.batchNo || "", tCols.batch, y, tCols.mfg - tCols.batch, { font: "Helvetica", fontSize: 8, align: "center" });
+      fitText(item.mfgDate || "", tCols.mfg, y, tCols.qty - tCols.mfg, { font: "Helvetica", fontSize: 8, align: "center" });
+      fitText(String(item.quantity), tCols.qty, y, pageRight - tCols.qty, { font: "Helvetica", fontSize: 8, align: "center" });
     }
     y += rowH;
-    if (y > 760) {
+    itemIndex++;
+
+    if (y > pageBottom - footerReserve && itemIndex < minRowsTotal) {
+      for (let ry = pageTableTop; ry <= y; ry += rowH) hLine(ry);
+      [tCols.desc, tCols.grammage, tCols.mrp, tCols.batch, tCols.mfg, tCols.qty, pageRight].forEach((x) => vLineSeg(x, pageTableTop, y));
       doc.addPage();
-      y = 40;
+      y = 20;
+      pageTableTop = y;
     }
   }
 
-  // Table borders
-  for (let ry = tableHeaderTop; ry <= y; ry += rowH) hLine(ry);
-  [tCols.desc, tCols.grammage, tCols.mrp, tCols.batch, tCols.mfg, tCols.qty, pageRight].forEach((x) =>
-    vLine(x, tableHeaderTop, y)
-  );
+  for (let ry = pageTableTop; ry <= y; ry += rowH) hLine(ry);
+  [tCols.desc, tCols.grammage, tCols.mrp, tCols.batch, tCols.mfg, tCols.qty, pageRight].forEach((x) => vLineSeg(x, pageTableTop, y));
 
   // ---- Footer: Terms | TOTAL | amount ----
-  // Prefer the real Shopify order total (selling price) over a recomputed
-  // MRP*qty sum, since MRP on the label often differs from the selling price.
   const grandTotal =
-    order.totalPrice !== undefined && order.totalPrice !== null
-      ? parseFloat(order.totalPrice)
-      : computedTotal;
+    order.totalPrice !== undefined && order.totalPrice !== null ? parseFloat(order.totalPrice) : computedTotal;
 
   const footTop = y;
   const footRowH = rowH + 10;
   const footTotalLabelX = pageLeft + fullWidth * 0.62;
   const footTotalValueX = pageLeft + fullWidth * 0.72;
-  fitText(`*Terms & Condition Apply by ${COMPANY.name}`, pageLeft, y, footTotalLabelX - pageLeft, {
-    font: "Helvetica-Oblique",
-    fontSize: 8,
-    minSize: 5,
-  });
-  fitText("TOTAL", footTotalLabelX, y, footTotalValueX - footTotalLabelX, {
-    font: "Helvetica-Bold",
-    fontSize: 9,
-  });
-  fitText(`Rs ${grandTotal.toFixed(2)}`, footTotalValueX, y, pageRight - footTotalValueX, {
-    font: "Helvetica-Bold",
-    fontSize: 11,
-  });
+  fitText(`*Terms & Condition Apply by ${COMPANY.name}`, pageLeft, y, footTotalLabelX - pageLeft, { font: "Helvetica-Oblique", fontSize: 8, minSize: 5, rowHeight: footRowH });
+  fitText("TOTAL", footTotalLabelX, y, footTotalValueX - footTotalLabelX, { font: "Helvetica-Bold", fontSize: 9, rowHeight: footRowH });
+  fitText(`Rs ${grandTotal.toFixed(2)}`, footTotalValueX, y, pageRight - footTotalValueX, { font: "Helvetica-Bold", fontSize: 11, rowHeight: footRowH });
   y += footRowH;
 
-  // ---- CHECKED BY row ----
   fitText("CHECKED BY", pageLeft, y, footTotalLabelX - pageLeft, { font: "Helvetica-Bold", fontSize: 8 });
   y += rowH;
 
   hLine(footTop);
   hLine(footTop + footRowH);
   hLine(y);
-  vLine(pageLeft, footTop, y);
-  vLine(footTotalLabelX, footTop, footTop + footRowH);
-  vLine(footTotalValueX, footTop, footTop + footRowH);
-  vLine(pageRight, footTop, y);
+  vLineSeg(pageLeft, footTop, y);
+  vLineSeg(footTotalLabelX, footTop, footTop + footRowH);
+  vLineSeg(footTotalValueX, footTop, footTop + footRowH);
+  vLineSeg(pageRight, footTop, y);
 
   doc.end();
 
