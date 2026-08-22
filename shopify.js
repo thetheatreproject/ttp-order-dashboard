@@ -94,11 +94,15 @@ function normalizeOrder(order) {
     customerOrdersCount: order.customer ? order.customer.orders_count : 0,
     customerPhone: order.shipping_address?.phone || order.customer?.phone || order.phone || "",
     shippingAddress: order.shipping_address,
+    financialStatus: order.financial_status || "",
     lineItems: order.line_items.map((li) => ({
       sku: li.sku,
       title: li.title,
       quantity: li.quantity,
       price: li.price,
+      // Shopify gives total discount for the whole line; convert to a
+      // per-unit figure since the invoice format shows discount per unit.
+      unitDiscount: li.quantity > 0 ? (parseFloat(li.total_discount) || 0) / li.quantity : 0,
     })),
     totalPrice: order.total_price,
   };

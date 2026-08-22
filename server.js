@@ -7,6 +7,7 @@ const crypto = require("crypto");
 const { getOrderById, listRecentOrders } = require("./shopify");
 const { deductStock, listProductsForDropdown, resolveWebsiteProduct } = require("./masterSheet");
 const { generateChallanPdf } = require("./generateChallan");
+const { generateInvoicePdf } = require("./generateInvoice");
 const { getPreviousChallan, recordChallan } = require("./challanLog");
 
 const app = express();
@@ -116,6 +117,20 @@ app.post("/api/shopify/orders/:id/challan", async (req, res) => {
 
     const pdfPath = generateChallanPdf(challanOrder, enrichedLineItems, OUTPUT_DIR);
     res.json({ url: `/files/${path.basename(pdfPath)}`, stockDeducted: !previous });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ---- Generate a Shopify order's invoice (no stock deduction — invoicing is a billing document, not a stock movement) ----
+app.post("/api/shopify/orders/:id/invoice", async (req, res) => {
+  try {
+    const order = await getOrderById(req.params.id);
+    if (!order) return res.status(404).json({ error: "Order not found" });
+
+    const pdfPath = generateInvoicePdf(order, order.lineItems, OUTPUT_DIR);
+    res.json({ url: `/files/${path.basename(pdfPath)}` });
   } catch (err) {
     console.error(err);
     res.status(500).json({ error: err.message });
