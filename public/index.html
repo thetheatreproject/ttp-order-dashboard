@@ -1,0 +1,312 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>The Theatre Project — Orders</title>
+<style>
+  * { box-sizing: border-box; }
+  body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; background: #f4f5f7; margin: 0; padding: 20px; color: #1a1a1a; }
+  .screen { display: none; max-width: 480px; margin: 0 auto; }
+  .screen.active { display: block; }
+  button { cursor: pointer; }
+  .logo-circle { width: 72px; height: 72px; border-radius: 50%; background: #1a1a1a; color: white; display: flex; align-items: center; justify-content: center; font-weight: 600; font-size: 22px; margin: 0 auto 1rem; }
+  #start-screen { text-align: center; padding-top: 4rem; }
+  #start-screen p { color: #666; margin-bottom: 2rem; }
+  #start-btn { background: #1a1a1a; color: white; border: none; padding: 12px 40px; border-radius: 8px; font-size: 15px; }
+  .tile { border: 1px solid #e0e0e0; border-radius: 12px; background: white; padding: 14px 16px; margin-bottom: 10px; cursor: pointer; display: flex; justify-content: space-between; align-items: center; }
+  .tile:hover { border-color: #ccc; }
+  .tile-row { display: flex; gap: 10px; }
+  .tile-half { flex: 1; text-align: center; }
+  .badge { font-size: 12px; padding: 3px 10px; border-radius: 6px; }
+  .badge-new { background: #e6f7e9; color: #1e7d32; }
+  .badge-muted { background: #f0f0f0; color: #888; }
+  .back-btn { background: none; border: none; color: #666; font-size: 13px; margin-bottom: 14px; padding: 0; }
+  h2 { font-size: 16px; margin: 0 0 12px; }
+  .order-row { display: flex; align-items: center; gap: 10px; padding: 12px 4px; border-bottom: 1px solid #eee; background: white; }
+  .dot { width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0; }
+  .dot-new { background: #2ecc71; }
+  .dot-done { background: #e74c3c; }
+  .order-info { flex: 1; }
+  .order-info p { margin: 0; }
+  .order-id { font-size: 13px; font-weight: 600; }
+  .order-meta { font-size: 12px; color: #888; }
+  .mini-btn { font-size: 12px; padding: 6px 10px; border-radius: 6px; border: 1px solid #ccc; background: white; margin-left: 6px; }
+  .legend { font-size: 12px; color: #999; margin-top: 12px; }
+  input, select { height: 36px; border-radius: 6px; border: 1px solid #ccc; padding: 0 10px; font-size: 13px; width: 100%; margin-bottom: 10px; }
+  .product-row { display: flex; gap: 8px; margin-bottom: 8px; align-items: center; }
+  .product-row select { margin-bottom: 0; }
+  .product-row input { margin-bottom: 0; width: 60px; flex: none; }
+  #add-product-btn { font-size: 13px; padding: 8px 14px; border-radius: 6px; border: 1px solid #ccc; background: white; margin-top: 4px; }
+  #custom-total { font-weight: 600; font-size: 15px; }
+  #custom-submit { background: #1a1a1a; color: white; border: none; padding: 10px 24px; border-radius: 8px; font-size: 14px; }
+  .field-error { color: #c0392b; font-size: 12px; margin: -6px 0 8px; }
+  .status-line { font-size: 13px; color: #666; margin-bottom: 10px; }
+</style>
+</head>
+<body>
+
+<div id="start-screen" class="screen active">
+  <div class="logo-circle">TTP</div>
+  <p>The Theatre Project</p>
+  <button id="start-btn">Start</button>
+</div>
+
+<div id="dashboard-screen" class="screen">
+  <h2>Orders</h2>
+  <div class="tile" id="shopify-tile">
+    <span>Shopify</span>
+    <span class="badge badge-new" id="shopify-badge">…</span>
+  </div>
+  <div class="tile-row">
+    <div class="tile tile-half" id="amazon-tile"><div><p style="margin:0;">Amazon</p><span class="badge badge-muted">coming soon</span></div></div>
+    <div class="tile tile-half" id="cred-tile"><div><p style="margin:0;">CRED</p><span class="badge badge-muted">coming soon</span></div></div>
+  </div>
+  <div class="tile" id="custom-tile"><span>+ Custom challan</span></div>
+</div>
+
+<div id="shopify-screen" class="screen">
+  <button class="back-btn" data-back="dashboard-screen">&larr; Back</button>
+  <h2>Shopify orders</h2>
+  <div class="status-line" id="shopify-status">Loading…</div>
+  <div id="shopify-order-list"></div>
+  <p class="legend"><span class="dot dot-new" style="display:inline-block;"></span> not downloaded &nbsp; <span class="dot dot-done" style="display:inline-block;"></span> already downloaded</p>
+</div>
+
+<div id="custom-screen" class="screen">
+  <button class="back-btn" data-back="dashboard-screen">&larr; Back</button>
+  <h2>Custom challan</h2>
+  <input id="c-name" placeholder="Customer name">
+  <input id="c-address" placeholder="Address">
+  <input id="c-state" placeholder="State">
+  <select id="c-type"><option value="Sample">Sample</option><option value="Paid">Paid</option></select>
+  <div id="product-rows"></div>
+  <button id="add-product-btn">+ Add product</button>
+  <div style="display:flex; justify-content:space-between; align-items:center; margin-top:16px;">
+    <span id="custom-total">Total: Rs 0</span>
+    <button id="custom-submit">Generate PDF</button>
+  </div>
+  <p class="field-error" id="custom-error" style="display:none;"></p>
+</div>
+
+<script>
+  let productCategories = [];
+
+  function showScreen(id) {
+    document.querySelectorAll('.screen').forEach(s => s.classList.remove('active'));
+    document.getElementById(id).classList.add('active');
+  }
+
+  document.getElementById('start-btn').addEventListener('click', () => {
+    showScreen('dashboard-screen');
+    loadShopifyBadge();
+  });
+  document.querySelectorAll('[data-back]').forEach(btn => {
+    btn.addEventListener('click', () => showScreen(btn.dataset.back));
+  });
+  document.getElementById('shopify-tile').addEventListener('click', () => {
+    showScreen('shopify-screen');
+    loadShopifyOrders();
+  });
+  document.getElementById('custom-tile').addEventListener('click', () => {
+    showScreen('custom-screen');
+    loadProductsForCustomForm();
+  });
+
+  async function loadShopifyBadge() {
+    try {
+      const res = await fetch('/api/shopify/orders');
+      const orders = await res.json();
+      const newCount = orders.filter(o => !o.downloaded).length;
+      document.getElementById('shopify-badge').textContent = newCount + ' new';
+    } catch (e) {
+      document.getElementById('shopify-badge').textContent = 'error';
+    }
+  }
+
+  async function loadShopifyOrders() {
+    const list = document.getElementById('shopify-order-list');
+    const status = document.getElementById('shopify-status');
+    status.textContent = 'Loading…';
+    try {
+      const res = await fetch('/api/shopify/orders');
+      const orders = await res.json();
+      status.textContent = orders.length + ' recent orders';
+      list.innerHTML = '';
+      for (const order of orders) {
+        const row = document.createElement('div');
+        row.className = 'order-row';
+        const date = new Date(order.createdAt).toLocaleDateString('en-IN');
+        row.innerHTML = `
+          <span class="dot ${order.downloaded ? 'dot-done' : 'dot-new'}"></span>
+          <div class="order-info">
+            <p class="order-id">${order.orderId} — ${order.customerName || ''}</p>
+            <p class="order-meta">${date}, Rs ${order.totalPrice}</p>
+          </div>
+          <button class="mini-btn" data-id="${order.id}">Challan</button>
+        `;
+        list.appendChild(row);
+      }
+    } catch (e) {
+      status.textContent = 'Failed to load orders: ' + e.message;
+    }
+  }
+
+  document.getElementById('shopify-order-list').addEventListener('click', async (e) => {
+    if (!e.target.matches('.mini-btn')) return;
+    const btn = e.target;
+    const id = btn.dataset.id;
+    const original = btn.textContent;
+    btn.disabled = true;
+    btn.textContent = '…';
+    try {
+      const res = await fetch(`/api/shopify/orders/${id}/challan`, { method: 'POST' });
+      const data = await res.json();
+      if (data.url) {
+        window.open(data.url, '_blank');
+        loadShopifyOrders();
+        loadShopifyBadge();
+      } else {
+        alert('Error: ' + (data.error || 'unknown error'));
+      }
+    } catch (err) {
+      alert('Request failed: ' + err.message);
+    } finally {
+      btn.disabled = false;
+      btn.textContent = original;
+    }
+  });
+
+  async function loadProductsForCustomForm() {
+    if (productCategories.length) return renderProductRow();
+    const res = await fetch('/api/products');
+    productCategories = await res.json();
+    document.getElementById('product-rows').innerHTML = '';
+    renderProductRow();
+  }
+
+  function renderProductRow() {
+    const container = document.getElementById('product-rows');
+    const row = document.createElement('div');
+    row.className = 'product-row';
+
+    const catSelect = document.createElement('select');
+    catSelect.innerHTML = productCategories.map(c => `<option value="${c.category}">${c.category}</option>`).join('');
+
+    const productSelect = document.createElement('select');
+    function fillProducts() {
+      const cat = productCategories.find(c => c.category === catSelect.value);
+      productSelect.innerHTML = (cat ? cat.products : []).map(p => `<option value="${p.name}">${p.name} — Rs ${p.mrp}</option>`).join('');
+      recalcTotal();
+    }
+    catSelect.addEventListener('change', fillProducts);
+    fillProducts();
+
+    const qtyInput = document.createElement('input');
+    qtyInput.type = 'number';
+    qtyInput.min = '1';
+    qtyInput.value = '1';
+    qtyInput.addEventListener('input', recalcTotal);
+    productSelect.addEventListener('change', recalcTotal);
+
+    row.appendChild(catSelect);
+    row.appendChild(productSelect);
+    row.appendChild(qtyInput);
+    container.appendChild(row);
+    recalcTotal();
+  }
+
+  document.getElementById('add-product-btn').addEventListener('click', renderProductRow);
+  document.getElementById('c-type').addEventListener('change', recalcTotal);
+
+  function recalcTotal() {
+    const isSample = document.getElementById('c-type').value === 'Sample';
+    if (isSample) {
+      document.getElementById('custom-total').textContent = 'Total: Rs 0';
+      return;
+    }
+    let total = 0;
+    document.querySelectorAll('#product-rows .product-row').forEach(row => {
+      const [catSelect, productSelect, qtyInput] = row.querySelectorAll('select, input');
+      const cat = productCategories.find(c => c.category === catSelect.value);
+      const product = cat && cat.products.find(p => p.name === productSelect.value);
+      const mrp = product ? parseFloat(product.mrp) || 0 : 0;
+      const qty = parseInt(qtyInput.value, 10) || 0;
+      total += mrp * qty;
+    });
+    document.getElementById('custom-total').textContent = 'Total: Rs ' + total.toFixed(2);
+  }
+
+  document.getElementById('custom-submit').addEventListener('click', async () => {
+    const errorEl = document.getElementById('custom-error');
+    errorEl.style.display = 'none';
+
+    const name = document.getElementById('c-name').value.trim();
+    const address = document.getElementById('c-address').value.trim();
+    const state = document.getElementById('c-state').value.trim();
+    const type = document.getElementById('c-type').value;
+
+    if (!name || !address) {
+      errorEl.textContent = 'Enter a customer name and address first.';
+      errorEl.style.display = 'block';
+      return;
+    }
+
+    const items = [];
+    document.querySelectorAll('#product-rows .product-row').forEach(row => {
+      const [, productSelect, qtyInput] = row.querySelectorAll('select, input');
+      const qty = parseInt(qtyInput.value, 10) || 0;
+      if (productSelect.value && qty > 0) {
+        items.push({ productName: productSelect.value, quantity: qty });
+      }
+    });
+
+    if (items.length === 0) {
+      errorEl.textContent = 'Add at least one product first.';
+      errorEl.style.display = 'block';
+      return;
+    }
+
+    const btn = document.getElementById('custom-submit');
+    btn.disabled = true;
+    btn.textContent = 'Generating…';
+    try {
+      const res = await fetch('/api/custom/challan', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ name, address, state, type, items }),
+      });
+      const data = await res.json();
+      if (data.url) {
+        window.open(data.url, '_blank');
+      } else {
+        errorEl.textContent = data.error || 'Something went wrong.';
+        errorEl.style.display = 'block';
+      }
+    } catch (err) {
+      errorEl.textContent = 'Request failed: ' + err.message;
+      errorEl.style.display = 'block';
+    } finally {
+      btn.disabled = false;
+      btn.textContent = 'Generate PDF';
+    }
+  });
+
+  function connectSSE() {
+    try {
+      const evtSource = new EventSource('/events');
+      evtSource.onmessage = (event) => {
+        const data = JSON.parse(event.data);
+        if (data.type === 'new_order') {
+          loadShopifyBadge();
+          if (document.getElementById('shopify-screen').classList.contains('active')) {
+            loadShopifyOrders();
+          }
+        }
+      };
+    } catch (e) { /* SSE not critical */ }
+  }
+  connectSSE();
+</script>
+</body>
+</html>
