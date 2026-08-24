@@ -7,9 +7,10 @@
     "start": "node server.js"
   },
   "dependencies": {
+    "amazon-sp-api": "^1.2.1",
+    "dotenv": "^16.4.5",
     "express": "^4.19.2",
     "googleapis": "^140.0.1",
-    "pdfkit": "^0.15.0",
-    "dotenv": "^16.4.5"
+    "pdfkit": "^0.15.0"
   }
 }
