@@ -32,6 +32,35 @@ const MAPPING_TAB = "Website Product Mapping";
 //   Cred Product Name | Base Product Name | Grammage | MRP | Units Per Pack
 const CRED_MAPPING_TAB = "Cred Product Mapping";
 
+// Short-lived cache for category tab reads. Google Sheets caps reads at
+// 60/minute per user — with 6 category tabs read on every dropdown load
+// AND every challan generation, a few quick actions in a row can blow
+// through that limit fast. Caching for a short window means loading the
+// form then immediately submitting reuses the same data instead of
+// re-reading identical rows twice. TTL is short enough that real stock
+// changes (from a challan a moment ago) are still picked up quickly.
+const TAB_CACHE_TTL_MS = 20000;
+const tabCache = new Map();
+
+function getCachedTab(tabName) {
+  const entry = tabCache.get(tabName);
+  if (entry && Date.now() - entry.time < TAB_CACHE_TTL_MS) {
+    return entry.data;
+  }
+  return null;
+}
+
+function setCachedTab(tabName, data) {
+  tabCache.set(tabName, { data, time: Date.now() });
+}
+
+// Called after any stock deduction so the next read reflects the new
+// quantity immediately, rather than serving a stale cached value for up
+// to TAB_CACHE_TTL_MS.
+function invalidateTabCache(tabName) {
+  tabCache.delete(tabName);
+}
+
 let sheetsClientPromise = null;
 
 async function getSheetsClient() {
@@ -71,6 +100,9 @@ const COLUMNS = {
  * row number so we can write deductions back to the right cell.
  */
 async function loadTab(tabName) {
+  const cached = getCachedTab(tabName);
+  if (cached) return cached;
+
   const sheets = await getSheetsClient();
   const res = await sheets.spreadsheets.values.get({
     spreadsheetId: process.env.MASTER_SHEET_ID,
@@ -127,6 +159,7 @@ async function loadTab(tabName) {
       quantityColLetter: colIndex.quantity >= 0 ? colLetter(colIndex.quantity) : null,
     });
   }
+  setCachedTab(tabName, items);
   return items;
 }
 
@@ -228,6 +261,7 @@ async function deductStock(productName, quantityNeeded, grammage = null, mrp = n
         valueInputOption: "RAW",
         requestBody: { values: [[newQuantity]] },
       });
+      invalidateTabCache(batch.tab);
     }
 
     usedBatches.push({
@@ -331,13 +365,20 @@ module.exports = {
  * rather than guessing, same reasoning as resolveWebsiteProduct.
  */
 async function resolveCredSku(credSkuOrName) {
-  const sheets = await getSheetsClient();
-  const res = await sheets.spreadsheets.values.get({
-    spreadsheetId: process.env.MASTER_SHEET_ID,
-    range: `'${CRED_MAPPING_TAB}'!A1:E500`,
-  });
+  const cached = getCachedTab(CRED_MAPPING_TAB);
+  let rows;
+  if (cached) {
+    rows = cached;
+  } else {
+    const sheets = await getSheetsClient();
+    const res = await sheets.spreadsheets.values.get({
+      spreadsheetId: process.env.MASTER_SHEET_ID,
+      range: `'${CRED_MAPPING_TAB}'!A1:E500`,
+    });
+    rows = res.data.values || [];
+    setCachedTab(CRED_MAPPING_TAB, rows);
+  }
 
-  const rows = res.data.values || [];
   const header = rows[0] || [];
   const nameCol = header.indexOf("Cred Product Name");
   const baseCol = header.indexOf("Base Product Name");
@@ -386,13 +427,20 @@ async function resolveCredSku(credSkuOrName) {
  * guessing, since a wrong guess here silently corrupts stock counts.
  */
 async function resolveWebsiteProduct(websiteProductName) {
-  const sheets = await getSheetsClient();
-  const res = await sheets.spreadsheets.values.get({
-    spreadsheetId: process.env.MASTER_SHEET_ID,
-    range: `'${MAPPING_TAB}'!A1:E500`,
-  });
+  const cached = getCachedTab(MAPPING_TAB);
+  let rows;
+  if (cached) {
+    rows = cached;
+  } else {
+    const sheets = await getSheetsClient();
+    const res = await sheets.spreadsheets.values.get({
+      spreadsheetId: process.env.MASTER_SHEET_ID,
+      range: `'${MAPPING_TAB}'!A1:E500`,
+    });
+    rows = res.data.values || [];
+    setCachedTab(MAPPING_TAB, rows);
+  }
 
-  const rows = res.data.values || [];
   const header = rows[0] || [];
   const nameCol = header.indexOf("Website Product Name");
   const baseCol = header.indexOf("Base Product Name");
