@@ -17,9 +17,10 @@
   .tile { border: 1px solid #e0e0e0; border-radius: 12px; background: white; padding: 14px 16px; margin-bottom: 10px; cursor: pointer; display: flex; justify-content: space-between; align-items: center; }
   .tile:hover { border-color: #ccc; }
   .tile-row { display: flex; gap: 10px; }
-  .tile-half { flex: 1; text-align: center; }
+  .tile-half { flex: 1; text-align: left; }
   .tile-icon { width: 20px; height: 20px; object-fit: contain; vertical-align: middle; margin-right: 8px; }
-  .tile-half-label { display: flex; align-items: center; justify-content: center; gap: 6px; margin: 0; }
+  .tile-half > div { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+  .tile-half-label { display: flex; align-items: center; gap: 6px; margin: 0; white-space: nowrap; }
   .tile-half-label .tile-icon { margin-right: 0; }
   .badge { font-size: 12px; padding: 3px 10px; border-radius: 6px; }
   .badge-new { background: #e6f7e9; color: #1e7d32; }
