@@ -516,6 +516,12 @@
             loadCredOrders();
           }
         }
+        if (data.type === 'new_amazon_order') {
+          loadAmazonBadge();
+          if (document.getElementById('amazon-screen').classList.contains('active')) {
+            loadAmazonOrders();
+          }
+        }
       };
     } catch (e) { /* SSE not critical */ }
   }
