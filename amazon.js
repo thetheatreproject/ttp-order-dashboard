@@ -140,7 +140,13 @@ async function listRecentOrders(limit = 15, lookbackDays = 30) {
       CreatedAfter: createdAfter,
     },
   });
-  const baseOrders = (listRes.Orders || []).slice(0, limit);
+  // Amazon's getOrders doesn't guarantee newest-first ordering — sort
+  // explicitly before taking the first `limit`, otherwise the most
+  // recent order can end up past the cutoff and never show up.
+  const sortedOrders = (listRes.Orders || []).sort(
+    (a, b) => new Date(b.PurchaseDate) - new Date(a.PurchaseDate)
+  );
+  const baseOrders = sortedOrders.slice(0, limit);
 
   const orders = [];
   for (const baseOrder of baseOrders) {
