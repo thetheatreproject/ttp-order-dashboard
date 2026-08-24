@@ -34,13 +34,15 @@
   .mini-btn { font-size: 12px; padding: 6px 10px; border-radius: 6px; border: 1px solid #ccc; background: white; margin-left: 6px; }
   .legend { font-size: 12px; color: #999; margin-top: 12px; }
   input, select { height: 36px; border-radius: 6px; border: 1px solid #ccc; padding: 0 10px; font-size: 13px; width: 100%; margin-bottom: 10px; }
-  .product-row { display: flex; gap: 8px; margin-bottom: 8px; align-items: center; }
-  .product-row select { margin-bottom: 0; }
-  .product-row input { margin-bottom: 0; width: 60px; flex: none; }
+  .product-row { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 12px; padding-bottom: 12px; border-bottom: 1px solid #eee; }
+  .product-row select { margin-bottom: 0; flex: 1 1 100%; }
+  .product-row .variant-select { flex: 1 1 auto; }
+  .product-row input { margin-bottom: 0; width: 70px; flex: none; }
+  .remove-row-btn { flex: none; width: 32px; height: 36px; border-radius: 6px; border: 1px solid #e0a0a0; background: #fdecea; color: #c0392b; font-size: 14px; cursor: pointer; }
   #add-product-btn { font-size: 13px; padding: 8px 14px; border-radius: 6px; border: 1px solid #ccc; background: white; margin-top: 4px; }
   #custom-total { font-weight: 600; font-size: 15px; }
   #custom-submit { background: #1a1a1a; color: white; border: none; padding: 10px 24px; border-radius: 8px; font-size: 14px; }
-  .field-error { color: #c0392b; font-size: 12px; margin: -6px 0 8px; }
+  .field-error { color: #c0392b; font-size: 13px; margin-top: 12px; padding: 8px 10px; background: #fdecea; border-radius: 6px; line-height: 1.4; }
   .status-line { font-size: 13px; color: #666; margin-bottom: 10px; }
 </style>
 </head>
@@ -93,6 +95,7 @@
   <button class="back-btn" data-back="dashboard-screen">&larr; Back</button>
   <h2>Custom challan</h2>
   <input id="c-name" placeholder="Customer name">
+  <input id="c-phone" placeholder="Customer number" type="tel">
   <input id="c-address" placeholder="Address">
   <input id="c-state" placeholder="State">
   <select id="c-type"><option value="Sample">Sample</option><option value="Paid">Paid</option></select>
@@ -362,12 +365,27 @@
     catSelect.innerHTML = productCategories.map(c => `<option value="${c.category}">${c.category}</option>`).join('');
 
     const productSelect = document.createElement('select');
+    const variantSelect = document.createElement('select');
+    variantSelect.className = 'variant-select';
+
     function fillProducts() {
       const cat = productCategories.find(c => c.category === catSelect.value);
-      productSelect.innerHTML = (cat ? cat.products : []).map(p => `<option value="${p.name}">${p.name} — Rs ${p.mrp}</option>`).join('');
+      productSelect.innerHTML = (cat ? cat.products : []).map(p => `<option value="${p.name}">${p.name}</option>`).join('');
+      fillVariants();
+    }
+    function fillVariants() {
+      const cat = productCategories.find(c => c.category === catSelect.value);
+      const product = cat && cat.products.find(p => p.name === productSelect.value);
+      const variants = product ? product.variants : [];
+      variantSelect.innerHTML = variants.map((v, i) => {
+        const label = [v.grammage ? v.grammage + 'g' : null, v.mrp ? 'Rs ' + v.mrp : null].filter(Boolean).join(' — ') || 'Standard';
+        return `<option value="${i}">${label}</option>`;
+      }).join('');
       recalcTotal();
     }
     catSelect.addEventListener('change', fillProducts);
+    productSelect.addEventListener('change', fillVariants);
+    variantSelect.addEventListener('change', recalcTotal);
     fillProducts();
 
     const qtyInput = document.createElement('input');
@@ -375,17 +393,42 @@
     qtyInput.min = '1';
     qtyInput.value = '1';
     qtyInput.addEventListener('input', recalcTotal);
-    productSelect.addEventListener('change', recalcTotal);
+
+    const removeBtn = document.createElement('button');
+    removeBtn.textContent = '✕';
+    removeBtn.type = 'button';
+    removeBtn.title = 'Remove this product';
+    removeBtn.className = 'remove-row-btn';
+    removeBtn.addEventListener('click', () => {
+      row.remove();
+      recalcTotal();
+    });
 
     row.appendChild(catSelect);
     row.appendChild(productSelect);
+    row.appendChild(variantSelect);
     row.appendChild(qtyInput);
+    row.appendChild(removeBtn);
     container.appendChild(row);
     recalcTotal();
   }
 
   document.getElementById('add-product-btn').addEventListener('click', renderProductRow);
   document.getElementById('c-type').addEventListener('change', recalcTotal);
+
+  function getRowSelection(row) {
+    const [catSelect, productSelect, variantSelect] = row.querySelectorAll('select');
+    const qtyInput = row.querySelector('input[type="number"]');
+    const cat = productCategories.find(c => c.category === catSelect.value);
+    const product = cat && cat.products.find(p => p.name === productSelect.value);
+    const variant = product && product.variants[parseInt(variantSelect.value, 10)];
+    return {
+      productName: productSelect.value,
+      grammage: variant ? variant.grammage : null,
+      mrp: variant ? variant.mrp : null,
+      quantity: parseInt(qtyInput.value, 10) || 0,
+    };
+  }
 
   function recalcTotal() {
     const isSample = document.getElementById('c-type').value === 'Sample';
@@ -395,12 +438,9 @@
     }
     let total = 0;
     document.querySelectorAll('#product-rows .product-row').forEach(row => {
-      const [catSelect, productSelect, qtyInput] = row.querySelectorAll('select, input');
-      const cat = productCategories.find(c => c.category === catSelect.value);
-      const product = cat && cat.products.find(p => p.name === productSelect.value);
-      const mrp = product ? parseFloat(product.mrp) || 0 : 0;
-      const qty = parseInt(qtyInput.value, 10) || 0;
-      total += mrp * qty;
+      const sel = getRowSelection(row);
+      const mrp = parseFloat(sel.mrp) || 0;
+      total += mrp * sel.quantity;
     });
     document.getElementById('custom-total').textContent = 'Total: Rs ' + total.toFixed(2);
   }
@@ -410,6 +450,7 @@
     errorEl.style.display = 'none';
 
     const name = document.getElementById('c-name').value.trim();
+    const phone = document.getElementById('c-phone').value.trim();
     const address = document.getElementById('c-address').value.trim();
     const state = document.getElementById('c-state').value.trim();
     const type = document.getElementById('c-type').value;
@@ -422,10 +463,9 @@
 
     const items = [];
     document.querySelectorAll('#product-rows .product-row').forEach(row => {
-      const [, productSelect, qtyInput] = row.querySelectorAll('select, input');
-      const qty = parseInt(qtyInput.value, 10) || 0;
-      if (productSelect.value && qty > 0) {
-        items.push({ productName: productSelect.value, quantity: qty });
+      const sel = getRowSelection(row);
+      if (sel.productName && sel.quantity > 0) {
+        items.push(sel);
       }
     });
 
@@ -442,7 +482,7 @@
       const res = await fetch('/api/custom/challan', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ name, address, state, type, items }),
+        body: JSON.stringify({ name, phone, address, state, type, items }),
       });
       const data = await res.json();
       if (data.url) {
