@@ -7,7 +7,7 @@ const crypto = require("crypto");
 const { getOrderById, listRecentOrders } = require("./shopify");
 const { getOrderById: getAmazonOrderById, listRecentOrders: listRecentAmazonOrders } = require("./amazon");
 const { handleWebhook: handleCredWebhook, getOrderById: getCredOrderById, listRecentOrders: listRecentCredOrders } = require("./cred");
-const { deductStock, listProductsForDropdown, resolveWebsiteProduct, resolveCredSku } = require("./masterSheet");
+const { deductStock, listProductsForDropdown, resolveWebsiteProduct, resolveCredSku, resolveAmazonProduct } = require("./masterSheet");
 const { generateChallanPdf } = require("./generateChallan");
 const { generateInvoicePdf } = require("./generateInvoice");
 const { getPreviousChallan, getAllChallans, recordChallan } = require("./challanLog");
@@ -224,25 +224,48 @@ app.post("/api/amazon/orders/:id/challan", async (req, res) => {
     } else {
       enrichedLineItems = [];
       for (const li of order.lineItems) {
-        const mapping = await resolveWebsiteProduct(li.title);
-        if (!mapping) {
+        // Amazon product names can be combos (multiple base products
+        // under one listing), same as CRED — resolveAmazonProduct
+        // returns one or more components per product, unlike
+        // resolveWebsiteProduct which is always a single product.
+        const components = await resolveAmazonProduct(li.title);
+        if (!components) {
           return res.status(422).json({
-            error: `"${li.title}" has no entry in the Website Product Mapping tab — add it before generating this challan (Website Product Name, Base Product Name, Units Per Pack).`,
+            error: `"${li.title}" has no entry in the Amazon Product Mapping tab — add it before generating this challan (Amazon Product Name, Base Product Name, Units Per Pack).`,
           });
         }
-        const baseQuantityNeeded = li.quantity * mapping.unitsPerPack;
-        const batchInfo = await deductStock(
-          mapping.baseProductName,
-          baseQuantityNeeded,
-          mapping.grammage,
-          mapping.mrp
-        );
-        enrichedLineItems.push({
-          ...li,
-          ...batchInfo,
-          title: li.title,
-          quantity: baseQuantityNeeded,
-        });
+        for (const component of components) {
+          const baseQuantityNeeded = li.quantity * component.unitsPerPack;
+          const mrpValue = parseFloat(String(component.mrp).replace(/[^0-9.]/g, "")) || 0;
+
+          if (mrpValue === 0) {
+            // MRP of 0 marks a non-priced item (freebie, gift card,
+            // coupon) — deduct from the "Extra" category tab by name
+            // only, same convention as CRED's freebie handling.
+            const batchInfo = await deductStock(component.baseProductName, baseQuantityNeeded);
+            enrichedLineItems.push({
+              ...li,
+              ...batchInfo,
+              title: batchInfo.productName,
+              quantity: baseQuantityNeeded,
+              mrp: "0",
+            });
+            continue;
+          }
+
+          const batchInfo = await deductStock(
+            component.baseProductName,
+            baseQuantityNeeded,
+            component.grammage,
+            component.mrp
+          );
+          enrichedLineItems.push({
+            ...li,
+            ...batchInfo,
+            title: batchInfo.productName,
+            quantity: baseQuantityNeeded,
+          });
+        }
       }
       await recordChallan(logKey, enrichedLineItems);
     }

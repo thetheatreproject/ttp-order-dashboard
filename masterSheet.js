@@ -32,6 +32,13 @@ const MAPPING_TAB = "Website Product Mapping";
 //   Cred Product Name | Base Product Name | Grammage | MRP | Units Per Pack
 const CRED_MAPPING_TAB = "Cred Product Mapping";
 
+// Same idea as CRED_MAPPING_TAB, but for Amazon orders. An Amazon product
+// name can also be a combo (multiple base products under one listing),
+// so this follows the same forward-fill/multi-row pattern. Exact column
+// headers:
+//   Amazon Product Name | Base Product Name | Grammage | MRP | Units Per Pack
+const AMAZON_MAPPING_TAB = "Amazon Product Mapping";
+
 // Short-lived cache for category tab reads. Google Sheets caps reads at
 // 60/minute per user — with 6 category tabs read on every dropdown load
 // AND every challan generation, a few quick actions in a row can blow
@@ -334,6 +341,7 @@ module.exports = {
   listProductsForDropdown,
   resolveWebsiteProduct,
   resolveCredSku,
+  resolveAmazonProduct,
   CATEGORY_TABS,
 };
 
@@ -393,6 +401,66 @@ async function resolveCredSku(credSkuOrName) {
   // product's group of component rows (blank below, same convention as
   // the category tabs) — forward-fill it so every component row is
   // correctly attributed.
+  let currentProductName = null;
+  for (let i = 1; i < rows.length; i++) {
+    const row = rows[i];
+    const rawName = nameCol >= 0 ? row[nameCol] : null;
+    if (rawName && rawName.trim()) {
+      currentProductName = rawName.trim();
+    }
+    if (!currentProductName) continue;
+
+    if (currentProductName.toLowerCase() === target) {
+      const baseProductName = baseCol >= 0 ? row[baseCol] : null;
+      if (!baseProductName || !baseProductName.trim()) continue; // skip blank spacer rows
+      components.push({
+        baseProductName: baseProductName.trim(),
+        grammage: grammageCol >= 0 ? row[grammageCol] : null,
+        mrp: mrpCol >= 0 ? row[mrpCol] : null,
+        unitsPerPack: parseInt(unitsCol >= 0 ? row[unitsCol] : "", 10) || 1,
+      });
+    }
+  }
+  return components.length > 0 ? components : null;
+}
+
+/**
+ * Looks up an Amazon product name in the "Amazon Product Mapping" tab,
+ * returning every component product it represents — same combo-capable
+ * pattern as resolveCredSku (an Amazon listing can bundle multiple base
+ * products, e.g. a 2-tin gift pack), since Amazon product titles are
+ * often long, descriptive combo names rather than single SKUs.
+ *
+ * Returns null if the product has no rows in the tab.
+ */
+async function resolveAmazonProduct(amazonProductName) {
+  const cached = getCachedTab(AMAZON_MAPPING_TAB);
+  let rows;
+  if (cached) {
+    rows = cached;
+  } else {
+    const sheets = await getSheetsClient();
+    const res = await sheets.spreadsheets.values.get({
+      spreadsheetId: process.env.MASTER_SHEET_ID,
+      range: `'${AMAZON_MAPPING_TAB}'!A1:E500`,
+    });
+    rows = res.data.values || [];
+    setCachedTab(AMAZON_MAPPING_TAB, rows);
+  }
+
+  const header = rows[0] || [];
+  const nameCol = header.indexOf("Amazon Product Name");
+  const baseCol = header.indexOf("Base Product Name");
+  const grammageCol = header.indexOf("Grammage");
+  const mrpCol = header.indexOf("MRP");
+  const unitsCol = header.indexOf("Units Per Pack");
+
+  const target = amazonProductName.trim().toLowerCase();
+  const components = [];
+
+  // Amazon Product Name is only filled in on the first row of each
+  // product's group of component rows (blank below, same forward-fill
+  // convention as the category tabs and CRED Product Mapping).
   let currentProductName = null;
   for (let i = 1; i < rows.length; i++) {
     const row = rows[i];
