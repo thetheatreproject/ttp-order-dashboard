@@ -4,76 +4,115 @@
 <meta charset="UTF-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1.0" />
 <title>The Theatre Project — Orders</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Bebas+Neue&display=swap" rel="stylesheet">
 <style>
+  :root {
+    --ttp-red: #DC503C;
+    --ttp-red-80: #E37363;
+    --ttp-red-40: #F1B9B1;
+    --ttp-red-20: #F8DCD8;
+    --ivory-peach: #F8DED0;
+    --ivory-peach-soft: #FBEBE1;
+    --status-green: #4C8737;
+    --status-green-bg: #E3F1D9;
+    --ink: #2B211C;
+    --slate: #8A776C;
+    --paper: #FFFCF9;
+    --card-border: #EDE1D6;
+  }
   * { box-sizing: border-box; }
-  body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; background: #f4f5f7; margin: 0; padding: 20px; color: #1a1a1a; }
+  body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; background: #EDE6DD; margin: 0; padding: 20px; color: var(--ink); }
   .screen { display: none; max-width: 480px; margin: 0 auto; }
   .screen.active { display: block; }
-  button { cursor: pointer; }
-  .ttp-logo-img { width: 140px; height: auto; display: block; margin: 0 auto 1rem; }
-  #start-screen { text-align: center; padding-top: 4rem; }
-  #start-screen p { color: #666; margin-bottom: 2rem; }
-  #start-btn { background: #1a1a1a; color: white; border: none; padding: 12px 40px; border-radius: 8px; font-size: 15px; }
-  .tile { border: 1px solid #e0e0e0; border-radius: 12px; background: white; padding: 14px 16px; margin-bottom: 10px; cursor: pointer; display: flex; justify-content: space-between; align-items: center; }
-  .tile:hover { border-color: #ccc; }
+  button { cursor: pointer; font-family: inherit; }
+  .ttp-logo-img { width: 120px; height: auto; display: block; margin: 0 auto 14px; }
+  .brand-eyebrow { font-family: "Bebas Neue", sans-serif; font-size: 13px; letter-spacing: 0.26em; color: var(--ttp-red); text-align: center; margin: 0 0 6px; }
+  #start-screen { text-align: center; padding-top: 4rem; background: var(--ivory-peach-soft); margin: -20px; padding-left: 20px; padding-right: 20px; padding-bottom: 40px; min-height: calc(100vh - 20px); }
+  #start-screen p { font-family: "Bebas Neue", sans-serif; font-size: 26px; letter-spacing: 0.01em; color: var(--ink); margin-bottom: 2rem; }
+  #start-btn { position: relative; background: var(--ttp-red); color: var(--paper); border: none; padding: 14px 48px; border-radius: 12px; font-family: "Bebas Neue", sans-serif; font-size: 18px; letter-spacing: 0.12em; transition: transform 120ms ease; }
+  #start-btn:active { transform: scale(0.97); }
+  .screen-header { display: flex; align-items: flex-start; justify-content: space-between; margin-bottom: 16px; }
+  .screen-header .eyebrow { font-size: 11px; letter-spacing: 0.16em; text-transform: uppercase; color: var(--ttp-red); margin: 0 0 4px; }
+  .screen-header h2 { font-family: "Bebas Neue", sans-serif; font-size: 26px; letter-spacing: 0.01em; margin: 0; color: var(--ink); }
+  .screen-header .header-logo { width: 28px; height: auto; margin-top: 2px; flex-shrink: 0; }
+  .tile { border: 1px solid var(--card-border); border-radius: 14px; background: var(--paper); padding: 14px 16px; margin-bottom: 10px; cursor: pointer; display: flex; justify-content: space-between; align-items: center; transition: transform 120ms ease, border-color 150ms ease; }
+  .tile:hover { border-color: var(--ttp-red-40); }
+  .tile:active { transform: scale(0.98); }
   .tile-row { display: flex; gap: 10px; }
   .tile-half { flex: 1; text-align: left; }
-  .tile-icon { width: 20px; height: 20px; object-fit: contain; vertical-align: middle; margin-right: 8px; }
+  .icon-chip { display: inline-flex; align-items: center; justify-content: center; width: 30px; height: 30px; border-radius: 9px; background: var(--ivory-peach); margin-right: 10px; vertical-align: middle; }
+  .tile-icon { width: 16px; height: 16px; object-fit: contain; }
   .tile-half > div { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
-  .tile-half-label { display: flex; align-items: center; gap: 6px; margin: 0; white-space: nowrap; }
-  .tile-half-label .tile-icon { margin-right: 0; }
-  .badge { font-size: 12px; padding: 3px 10px; border-radius: 6px; }
-  .badge-new { background: #e6f7e9; color: #1e7d32; }
-  .badge-muted { background: #f0f0f0; color: #888; }
-  .back-btn { background: none; border: none; color: #666; font-size: 13px; margin-bottom: 14px; padding: 0; }
-  h2 { font-size: 16px; margin: 0 0 12px; }
-  .order-row { display: flex; align-items: center; gap: 10px; padding: 12px 4px; border-bottom: 1px solid #eee; background: white; }
+  .tile-half-label { display: flex; align-items: center; gap: 0; margin: 0; white-space: nowrap; }
+  .badge { font-family: "Bebas Neue", sans-serif; font-size: 13px; letter-spacing: 0.05em; padding: 4px 12px; border-radius: 20px; }
+  .badge-new { background: var(--status-green-bg); color: var(--status-green); }
+  .badge-muted { background: #EFEAE4; color: var(--slate); }
+  #custom-tile { border-style: dashed; border-color: #C9B9AA; background: transparent; box-shadow: none; }
+  #custom-tile:active { border-color: var(--ttp-red); }
+  #custom-tile span { color: var(--slate); font-size: 14.5px; font-weight: 500; width: 100%; text-align: center; }
+  .back-btn { background: none; border: none; color: var(--slate); font-size: 13px; margin-bottom: 10px; padding: 0; }
+  h2 { font-family: "Bebas Neue", sans-serif; font-size: 26px; margin: 0 0 12px; color: var(--ink); }
+  .order-row { display: flex; align-items: center; gap: 10px; padding: 12px 4px; border-bottom: 1px solid var(--card-border); background: var(--paper); }
   .dot { width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0; }
-  .dot-new { background: #2ecc71; }
-  .dot-done { background: #e74c3c; }
+  .dot-new { background: var(--status-green); }
+  .dot-done { background: var(--ttp-red); }
   .order-info { flex: 1; }
   .order-info p { margin: 0; }
-  .order-id { font-size: 13px; font-weight: 600; }
-  .order-meta { font-size: 12px; color: #888; }
-  .mini-btn { font-size: 12px; padding: 6px 10px; border-radius: 6px; border: 1px solid #ccc; background: white; margin-left: 6px; }
-  .legend { font-size: 12px; color: #999; margin-top: 12px; }
-  input, select { height: 36px; border-radius: 6px; border: 1px solid #ccc; padding: 0 10px; font-size: 13px; width: 100%; margin-bottom: 10px; }
-  .product-row { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 12px; padding-bottom: 12px; border-bottom: 1px solid #eee; }
+  .order-id { font-size: 13px; font-weight: 600; color: var(--ink); }
+  .order-meta { font-size: 12px; color: var(--slate); }
+  .mini-btn { font-family: "Bebas Neue", sans-serif; font-size: 12px; letter-spacing: 0.05em; padding: 7px 13px; border-radius: 20px; border: none; margin-left: 6px; transition: transform 120ms ease; }
+  .mini-btn:active { transform: scale(0.94); }
+  .mini-btn[data-action="challan"] { background: var(--ttp-red); color: var(--paper); }
+  .mini-btn[data-action="invoice"] { background: var(--ivory-peach); color: #A8432F; }
+  .legend { font-size: 12px; color: var(--slate); margin-top: 12px; }
+  input, select { height: 38px; border-radius: 10px; border: 1px solid var(--card-border); background: var(--paper); padding: 0 12px; font-size: 13px; color: var(--ink); width: 100%; margin-bottom: 10px; font-family: inherit; }
+  input::placeholder { color: #B8A99B; }
+  .product-row { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 10px; padding: 12px; border-bottom: none; background: var(--ivory-peach-soft); border-radius: 12px; }
   .product-row select { margin-bottom: 0; flex: 1 1 100%; }
   .product-row .variant-select { flex: 1 1 auto; }
   .product-row input { margin-bottom: 0; width: 70px; flex: none; }
-  .remove-row-btn { flex: none; width: 32px; height: 36px; border-radius: 6px; border: 1px solid #e0a0a0; background: #fdecea; color: #c0392b; font-size: 14px; cursor: pointer; }
-  #add-product-btn { font-size: 13px; padding: 8px 14px; border-radius: 6px; border: 1px solid #ccc; background: white; margin-top: 4px; }
-  #custom-total { font-weight: 600; font-size: 15px; }
-  #custom-submit { background: #1a1a1a; color: white; border: none; padding: 10px 24px; border-radius: 8px; font-size: 14px; }
-  .field-error { color: #c0392b; font-size: 13px; margin-top: 12px; padding: 8px 10px; background: #fdecea; border-radius: 6px; line-height: 1.4; }
-  .status-line { font-size: 13px; color: #666; margin-bottom: 10px; }
+  .remove-row-btn { flex: none; width: 34px; height: 38px; border-radius: 8px; border: 1px solid var(--ttp-red-40); background: var(--paper); color: var(--ttp-red); font-size: 14px; cursor: pointer; }
+  #add-product-btn { font-size: 13.5px; font-weight: 500; padding: 12px; border-radius: 12px; border: 1.5px dashed #C9B9AA; background: transparent; color: var(--slate); margin-top: 4px; width: 100%; }
+  #custom-total { font-family: "Bebas Neue", sans-serif; font-weight: normal; font-size: 20px; color: var(--ink); }
+  #custom-submit { position: relative; background: var(--ttp-red); color: var(--paper); border: none; padding: 12px 28px; border-radius: 12px; font-family: "Bebas Neue", sans-serif; font-size: 16px; letter-spacing: 0.1em; transition: transform 120ms ease; }
+  #custom-submit:active { transform: scale(0.96); }
+  .field-error { color: #A8432F; font-size: 13px; margin-top: 12px; padding: 10px 12px; background: var(--ttp-red-20); border: 1px solid var(--ttp-red-40); border-radius: 10px; line-height: 1.4; }
+  .status-line { font-size: 13px; color: var(--slate); margin-bottom: 10px; }
 </style>
 </head>
 <body>
 
 <div id="start-screen" class="screen active">
   <img src="/images/ttp-logo.png" alt="The Theatre Project" class="ttp-logo-img">
+  <p class="brand-eyebrow">NOW SHOWING</p>
   <p>The Theatre Project</p>
   <button id="start-btn">Start</button>
 </div>
 
 <div id="dashboard-screen" class="screen">
-  <h2>Orders</h2>
+  <div class="screen-header">
+    <div><p class="eyebrow">Today's Screenings</p><h2>Orders</h2></div>
+    <img src="/images/ttp-logo.png" alt="" class="header-logo">
+  </div>
   <div class="tile" id="shopify-tile">
-    <span><img src="/images/shopify.png" alt="" class="tile-icon">Shopify</span>
+    <span><span class="icon-chip"><img src="/images/shopify.png" alt="" class="tile-icon"></span>Shopify</span>
     <span class="badge badge-new" id="shopify-badge">…</span>
   </div>
   <div class="tile-row">
-    <div class="tile tile-half" id="amazon-tile"><div><p class="tile-half-label"><img src="/images/amazon.png" alt="" class="tile-icon">Amazon</p><span class="badge badge-new" id="amazon-badge">…</span></div></div>
-    <div class="tile tile-half" id="cred-tile"><div><p class="tile-half-label"><img src="/images/cred.png" alt="" class="tile-icon">CRED</p><span class="badge badge-new" id="cred-badge">…</span></div></div>
+    <div class="tile tile-half" id="amazon-tile"><div><p class="tile-half-label"><span class="icon-chip"><img src="/images/amazon.png" alt="" class="tile-icon"></span>Amazon</p><span class="badge badge-new" id="amazon-badge">…</span></div></div>
+    <div class="tile tile-half" id="cred-tile"><div><p class="tile-half-label"><span class="icon-chip"><img src="/images/cred.png" alt="" class="tile-icon"></span>CRED</p><span class="badge badge-new" id="cred-badge">…</span></div></div>
   </div>
   <div class="tile" id="custom-tile"><span>+ Custom challan</span></div>
 </div>
 
 <div id="shopify-screen" class="screen">
   <button class="back-btn" data-back="dashboard-screen">&larr; Back</button>
-  <h2>Shopify orders</h2>
+  <div class="screen-header">
+    <div><p class="eyebrow">Sec A</p><h2>Shopify orders</h2></div>
+    <img src="/images/ttp-logo.png" alt="" class="header-logo">
+  </div>
   <div class="status-line" id="shopify-status">Loading…</div>
   <div id="shopify-order-list"></div>
   <p class="legend"><span class="dot dot-new" style="display:inline-block;"></span> not downloaded &nbsp; <span class="dot dot-done" style="display:inline-block;"></span> already downloaded</p>
@@ -81,7 +120,10 @@
 
 <div id="amazon-screen" class="screen">
   <button class="back-btn" data-back="dashboard-screen">&larr; Back</button>
-  <h2>Amazon (FBA) orders</h2>
+  <div class="screen-header">
+    <div><p class="eyebrow">Sec B</p><h2>Amazon (FBA) orders</h2></div>
+    <img src="/images/ttp-logo.png" alt="" class="header-logo">
+  </div>
   <div class="status-line" id="amazon-status">Loading…</div>
   <div id="amazon-order-list"></div>
   <p class="legend"><span class="dot dot-new" style="display:inline-block;"></span> not downloaded &nbsp; <span class="dot dot-done" style="display:inline-block;"></span> already downloaded</p>
@@ -89,7 +131,10 @@
 
 <div id="cred-screen" class="screen">
   <button class="back-btn" data-back="dashboard-screen">&larr; Back</button>
-  <h2>CRED orders</h2>
+  <div class="screen-header">
+    <div><p class="eyebrow">Sec C</p><h2>CRED orders</h2></div>
+    <img src="/images/ttp-logo.png" alt="" class="header-logo">
+  </div>
   <div class="status-line" id="cred-status">Loading…</div>
   <div id="cred-order-list"></div>
   <p class="legend"><span class="dot dot-new" style="display:inline-block;"></span> not downloaded &nbsp; <span class="dot dot-done" style="display:inline-block;"></span> already downloaded</p>
@@ -97,7 +142,10 @@
 
 <div id="custom-screen" class="screen">
   <button class="back-btn" data-back="dashboard-screen">&larr; Back</button>
-  <h2>Custom challan</h2>
+  <div class="screen-header">
+    <div><p class="eyebrow">Box Office</p><h2>Custom challan</h2></div>
+    <img src="/images/ttp-logo.png" alt="" class="header-logo">
+  </div>
   <input id="c-name" placeholder="Customer name">
   <input id="c-phone" placeholder="Customer number" type="tel">
   <input id="c-address" placeholder="Address">
