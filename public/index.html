@@ -19,7 +19,8 @@
   .tile-row { display: flex; gap: 10px; }
   .tile-half { flex: 1; text-align: center; }
   .tile-icon { width: 20px; height: 20px; object-fit: contain; vertical-align: middle; margin-right: 8px; }
-  .tile-half .tile-icon { display: block; margin: 0 auto 6px; }
+  .tile-half-label { display: flex; align-items: center; justify-content: center; gap: 6px; margin: 0; }
+  .tile-half-label .tile-icon { margin-right: 0; }
   .badge { font-size: 12px; padding: 3px 10px; border-radius: 6px; }
   .badge-new { background: #e6f7e9; color: #1e7d32; }
   .badge-muted { background: #f0f0f0; color: #888; }
@@ -63,8 +64,8 @@
     <span class="badge badge-new" id="shopify-badge">…</span>
   </div>
   <div class="tile-row">
-    <div class="tile tile-half" id="amazon-tile"><div><img src="/images/amazon.png" alt="" class="tile-icon"><p style="margin:0;">Amazon</p><span class="badge badge-new" id="amazon-badge">…</span></div></div>
-    <div class="tile tile-half" id="cred-tile"><div><img src="/images/cred.png" alt="" class="tile-icon"><p style="margin:0;">CRED</p><span class="badge badge-new" id="cred-badge">…</span></div></div>
+    <div class="tile tile-half" id="amazon-tile"><div><p class="tile-half-label"><img src="/images/amazon.png" alt="" class="tile-icon">Amazon</p><span class="badge badge-new" id="amazon-badge">…</span></div></div>
+    <div class="tile tile-half" id="cred-tile"><div><p class="tile-half-label"><img src="/images/cred.png" alt="" class="tile-icon">CRED</p><span class="badge badge-new" id="cred-badge">…</span></div></div>
   </div>
   <div class="tile" id="custom-tile"><span>+ Custom challan</span></div>
 </div>
