@@ -59,8 +59,8 @@
     <span class="badge badge-new" id="shopify-badge">…</span>
   </div>
   <div class="tile-row">
-    <div class="tile tile-half" id="amazon-tile"><div><p style="margin:0;">Amazon</p><span class="badge badge-muted">coming soon</span></div></div>
-    <div class="tile tile-half" id="cred-tile"><div><p style="margin:0;">CRED</p><span class="badge badge-muted">coming soon</span></div></div>
+    <div class="tile tile-half" id="amazon-tile"><div><p style="margin:0;">Amazon</p><span class="badge badge-new" id="amazon-badge">…</span></div></div>
+    <div class="tile tile-half" id="cred-tile"><div><p style="margin:0;">CRED</p><span class="badge badge-new" id="cred-badge">…</span></div></div>
   </div>
   <div class="tile" id="custom-tile"><span>+ Custom challan</span></div>
 </div>
@@ -70,6 +70,22 @@
   <h2>Shopify orders</h2>
   <div class="status-line" id="shopify-status">Loading…</div>
   <div id="shopify-order-list"></div>
+  <p class="legend"><span class="dot dot-new" style="display:inline-block;"></span> not downloaded &nbsp; <span class="dot dot-done" style="display:inline-block;"></span> already downloaded</p>
+</div>
+
+<div id="amazon-screen" class="screen">
+  <button class="back-btn" data-back="dashboard-screen">&larr; Back</button>
+  <h2>Amazon (FBA) orders</h2>
+  <div class="status-line" id="amazon-status">Loading…</div>
+  <div id="amazon-order-list"></div>
+  <p class="legend"><span class="dot dot-new" style="display:inline-block;"></span> not downloaded &nbsp; <span class="dot dot-done" style="display:inline-block;"></span> already downloaded</p>
+</div>
+
+<div id="cred-screen" class="screen">
+  <button class="back-btn" data-back="dashboard-screen">&larr; Back</button>
+  <h2>CRED orders</h2>
+  <div class="status-line" id="cred-status">Loading…</div>
+  <div id="cred-order-list"></div>
   <p class="legend"><span class="dot dot-new" style="display:inline-block;"></span> not downloaded &nbsp; <span class="dot dot-done" style="display:inline-block;"></span> already downloaded</p>
 </div>
 
@@ -100,6 +116,8 @@
   document.getElementById('start-btn').addEventListener('click', () => {
     showScreen('dashboard-screen');
     loadShopifyBadge();
+    loadAmazonBadge();
+    loadCredBadge();
   });
   document.querySelectorAll('[data-back]').forEach(btn => {
     btn.addEventListener('click', () => showScreen(btn.dataset.back));
@@ -107,6 +125,14 @@
   document.getElementById('shopify-tile').addEventListener('click', () => {
     showScreen('shopify-screen');
     loadShopifyOrders();
+  });
+  document.getElementById('amazon-tile').addEventListener('click', () => {
+    showScreen('amazon-screen');
+    loadAmazonOrders();
+  });
+  document.getElementById('cred-tile').addEventListener('click', () => {
+    showScreen('cred-screen');
+    loadCredOrders();
   });
   document.getElementById('custom-tile').addEventListener('click', () => {
     showScreen('custom-screen');
@@ -169,6 +195,142 @@
         if (action === 'challan') {
           loadShopifyOrders();
           loadShopifyBadge();
+        }
+      } else {
+        alert('Error: ' + (data.error || 'unknown error'));
+      }
+    } catch (err) {
+      alert('Request failed: ' + err.message);
+    } finally {
+      btn.disabled = false;
+      btn.textContent = original;
+    }
+  });
+
+  async function loadAmazonBadge() {
+    try {
+      const res = await fetch('/api/amazon/orders');
+      const orders = await res.json();
+      const newCount = orders.filter(o => !o.downloaded).length;
+      document.getElementById('amazon-badge').textContent = newCount + ' new';
+    } catch (e) {
+      document.getElementById('amazon-badge').textContent = 'error';
+    }
+  }
+
+  async function loadAmazonOrders() {
+    const list = document.getElementById('amazon-order-list');
+    const status = document.getElementById('amazon-status');
+    status.textContent = 'Loading…';
+    try {
+      const res = await fetch('/api/amazon/orders');
+      const orders = await res.json();
+      status.textContent = orders.length + ' recent orders';
+      list.innerHTML = '';
+      for (const order of orders) {
+        const row = document.createElement('div');
+        row.className = 'order-row';
+        const date = new Date(order.createdAt).toLocaleDateString('en-IN');
+        row.innerHTML = `
+          <span class="dot ${order.downloaded ? 'dot-done' : 'dot-new'}"></span>
+          <div class="order-info">
+            <p class="order-id">${order.orderId} — ${order.customerName || ''}</p>
+            <p class="order-meta">${date}, Rs ${order.totalPrice}</p>
+          </div>
+          <button class="mini-btn" data-id="${order.id}" data-action="challan">Challan</button>
+          <button class="mini-btn" data-id="${order.id}" data-action="invoice">Invoice</button>
+        `;
+        list.appendChild(row);
+      }
+    } catch (e) {
+      status.textContent = 'Failed to load orders: ' + e.message;
+    }
+  }
+
+  document.getElementById('amazon-order-list').addEventListener('click', async (e) => {
+    if (!e.target.matches('.mini-btn')) return;
+    const btn = e.target;
+    const id = btn.dataset.id;
+    const action = btn.dataset.action;
+    const original = btn.textContent;
+    btn.disabled = true;
+    btn.textContent = '…';
+    try {
+      const res = await fetch(`/api/amazon/orders/${id}/${action}`, { method: 'POST' });
+      const data = await res.json();
+      if (data.url) {
+        window.open(data.url, '_blank');
+        if (action === 'challan') {
+          loadAmazonOrders();
+          loadAmazonBadge();
+        }
+      } else {
+        alert('Error: ' + (data.error || 'unknown error'));
+      }
+    } catch (err) {
+      alert('Request failed: ' + err.message);
+    } finally {
+      btn.disabled = false;
+      btn.textContent = original;
+    }
+  });
+
+  async function loadCredBadge() {
+    try {
+      const res = await fetch('/api/cred/orders');
+      const orders = await res.json();
+      const newCount = orders.filter(o => !o.downloaded).length;
+      document.getElementById('cred-badge').textContent = newCount + ' new';
+    } catch (e) {
+      document.getElementById('cred-badge').textContent = 'error';
+    }
+  }
+
+  async function loadCredOrders() {
+    const list = document.getElementById('cred-order-list');
+    const status = document.getElementById('cred-status');
+    status.textContent = 'Loading…';
+    try {
+      const res = await fetch('/api/cred/orders');
+      const orders = await res.json();
+      status.textContent = orders.length + ' recent orders';
+      list.innerHTML = '';
+      for (const order of orders) {
+        const row = document.createElement('div');
+        row.className = 'order-row';
+        const date = new Date(order.createdAt).toLocaleDateString('en-IN');
+        row.innerHTML = `
+          <span class="dot ${order.downloaded ? 'dot-done' : 'dot-new'}"></span>
+          <div class="order-info">
+            <p class="order-id">${order.orderId} — ${order.customerName || ''}</p>
+            <p class="order-meta">${date}, Rs ${order.totalPrice}</p>
+          </div>
+          <button class="mini-btn" data-id="${order.id}" data-action="challan">Challan</button>
+          <button class="mini-btn" data-id="${order.id}" data-action="invoice">Invoice</button>
+        `;
+        list.appendChild(row);
+      }
+    } catch (e) {
+      status.textContent = 'Failed to load orders: ' + e.message;
+    }
+  }
+
+  document.getElementById('cred-order-list').addEventListener('click', async (e) => {
+    if (!e.target.matches('.mini-btn')) return;
+    const btn = e.target;
+    const id = btn.dataset.id;
+    const action = btn.dataset.action;
+    const original = btn.textContent;
+    btn.disabled = true;
+    btn.textContent = '…';
+    try {
+      const res = await fetch(`/api/cred/orders/${id}/${action}`, { method: 'POST' });
+      const data = await res.json();
+      if (data.url) {
+        window.open(data.url, '_blank');
+        if (action === 'challan') {
+          loadCredOrders();
+          loadCredBadge();
         }
       } else {
         alert('Error: ' + (data.error || 'unknown error'));
@@ -305,6 +467,12 @@
           loadShopifyBadge();
           if (document.getElementById('shopify-screen').classList.contains('active')) {
             loadShopifyOrders();
+          }
+        }
+        if (data.type === 'new_cred_order') {
+          loadCredBadge();
+          if (document.getElementById('cred-screen').classList.contains('active')) {
+            loadCredOrders();
           }
         }
       };
