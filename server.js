@@ -57,10 +57,12 @@ app.get("/events", (req, res) => {
 app.get("/api/shopify/orders", async (req, res) => {
   try {
     const orders = await listRecentOrders(25);
-    const withStatus = orders.map((o) => ({
-      ...o,
-      downloaded: !!getPreviousChallan(`shopify:${o.orderId}`),
-    }));
+    const withStatus = await Promise.all(
+      orders.map(async (o) => ({
+        ...o,
+        downloaded: !!(await getPreviousChallan(`shopify:${o.orderId}`)),
+      }))
+    );
     res.json(withStatus);
   } catch (err) {
     console.error(err);
@@ -75,7 +77,7 @@ app.post("/api/shopify/orders/:id/challan", async (req, res) => {
     if (!order) return res.status(404).json({ error: "Order not found" });
 
     const logKey = `shopify:${order.orderId}`;
-    const previous = getPreviousChallan(logKey);
+    const previous = await getPreviousChallan(logKey);
     let enrichedLineItems;
 
     if (previous) {
@@ -106,7 +108,7 @@ app.post("/api/shopify/orders/:id/challan", async (req, res) => {
           quantity: baseQuantityNeeded,
         });
       }
-      recordChallan(logKey, enrichedLineItems);
+      await recordChallan(logKey, enrichedLineItems);
     }
 
     const challanOrder = {
