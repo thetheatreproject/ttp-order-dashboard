@@ -261,9 +261,12 @@ function formatSheetDate(val) {
 }
 
 /** Returns all products across all tabs, grouped by tab, for the Custom
- * challan form's category → product dropdowns. Only returns one entry per
- * unique product name per tab (not one per batch), with the lowest-priority
- * batch's MRP shown as the representative price.
+ * challan form's category → product → variant dropdowns. Unlike the old
+ * version, this keeps EVERY grammage/MRP variant per product name rather
+ * than collapsing to one — a product can legitimately be sold at several
+ * different grammage/MRP combinations (e.g. 30g/Rs30, 60g/Rs60), and all
+ * of them need to be selectable, not just whichever the sheet happens to
+ * list first.
  */
 async function listProductsForDropdown() {
   const allTabs = await Promise.all(CATEGORY_TABS.map((tab) => loadTab(tab).then((items) => ({ tab, items }))));
@@ -271,17 +274,22 @@ async function listProductsForDropdown() {
   return allTabs.map(({ tab, items }) => {
     const byName = {};
     for (const item of items) {
-      if (!byName[item.productName] || item.priority < byName[item.productName].priority) {
-        byName[item.productName] = item;
+      if (!byName[item.productName]) {
+        byName[item.productName] = [];
+      }
+      // Same product can appear across multiple batch rows at the same
+      // grammage/MRP (different batches) — only keep one entry per
+      // distinct grammage+MRP combination, not one per batch row.
+      const alreadyListed = byName[item.productName].some(
+        (v) => v.grammage === item.grammage && v.mrp === item.mrp
+      );
+      if (!alreadyListed) {
+        byName[item.productName].push({ grammage: item.grammage, mrp: item.mrp });
       }
     }
     return {
       category: tab,
-      products: Object.values(byName).map((p) => ({
-        name: p.productName,
-        mrp: p.mrp,
-        grammage: p.grammage,
-      })),
+      products: Object.entries(byName).map(([name, variants]) => ({ name, variants })),
     };
   });
 }

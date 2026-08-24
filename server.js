@@ -364,7 +364,7 @@ app.get("/api/products", async (req, res) => {
 // ---- Custom challan generation ----
 app.post("/api/custom/challan", async (req, res) => {
   try {
-    const { name, address, state, type, items } = req.body;
+    const { name, phone, address, state, type, items } = req.body;
     if (!name || !address || !type || !Array.isArray(items) || items.length === 0) {
       return res.status(400).json({ error: "Missing required fields" });
     }
@@ -372,7 +372,10 @@ app.post("/api/custom/challan", async (req, res) => {
     const isSample = type.toLowerCase() === "sample";
     const enrichedLineItems = [];
     for (const item of items) {
-      const batchInfo = await deductStock(item.productName, item.quantity);
+      // Pass the selected variant's grammage/MRP so the correct row is
+      // matched when a product has multiple grammage/MRP combinations —
+      // without this, deductStock could pick any variant's batch.
+      const batchInfo = await deductStock(item.productName, item.quantity, item.grammage, item.mrp);
       enrichedLineItems.push({
         title: item.productName,
         quantity: item.quantity,
@@ -385,6 +388,7 @@ app.post("/api/custom/challan", async (req, res) => {
       orderId: `CUSTOM-${Date.now()}`,
       createdAt: new Date().toISOString(),
       customerName: name,
+      customerPhone: phone || "",
       shippingAddress: { address1: address, province: state },
       orderType: type,
       totalOrdersCount: items.reduce((sum, i) => sum + i.quantity, 0),
