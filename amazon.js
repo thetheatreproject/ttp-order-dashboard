@@ -75,7 +75,13 @@ async function getOrderItems(client, orderId) {
     endpoint: "orders",
     path: { orderId },
   });
-  return (res.payload && res.payload.OrderItems) || [];
+  // The amazon-sp-api client already unwraps the API's outer envelope, so
+  // `res` here IS the payload directly, not something wrapped inside a
+  // .payload property — confirmed by listRecentOrders() already working
+  // via listRes.Orders (not listRes.payload.Orders). Fall back to
+  // res.payload defensively in case that ever changes.
+  const payload = res.OrderItems ? res : res.payload || {};
+  return payload.OrderItems || [];
 }
 
 /**
@@ -169,7 +175,9 @@ async function getOrderById(orderId) {
     endpoint: "orders",
     path: { orderId },
   });
-  const baseOrder = res.payload;
+  // Same unwrapping note as getOrderItems above — res is the order object
+  // directly (has AmazonOrderId etc.), not nested under .payload.
+  const baseOrder = res.AmazonOrderId ? res : res.payload;
   if (!baseOrder) return null;
 
   const items = await getOrderItems(client, orderId);
