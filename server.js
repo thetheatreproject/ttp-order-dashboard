@@ -5,7 +5,9 @@ const fs = require("fs");
 const crypto = require("crypto");
 
 const { getOrderById, listRecentOrders } = require("./shopify");
-const { deductStock, listProductsForDropdown, resolveWebsiteProduct } = require("./masterSheet");
+const { getOrderById: getAmazonOrderById, listRecentOrders: listRecentAmazonOrders } = require("./amazon");
+const { handleWebhook: handleCredWebhook, getOrderById: getCredOrderById, listRecentOrders: listRecentCredOrders } = require("./cred");
+const { deductStock, listProductsForDropdown, resolveWebsiteProduct, resolveCredSku } = require("./masterSheet");
 const { generateChallanPdf } = require("./generateChallan");
 const { generateInvoicePdf } = require("./generateInvoice");
 const { getPreviousChallan, recordChallan } = require("./challanLog");
@@ -129,6 +131,215 @@ app.post("/api/shopify/orders/:id/challan", async (req, res) => {
 app.post("/api/shopify/orders/:id/invoice", async (req, res) => {
   try {
     const order = await getOrderById(req.params.id);
+    if (!order) return res.status(404).json({ error: "Order not found" });
+
+    const pdfPath = await generateInvoicePdf(order, order.lineItems, OUTPUT_DIR);
+    res.json({ url: `/files/${path.basename(pdfPath)}` });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ---- CRED order webhook (from Easyecom, which aggregates CRED-API orders) ----
+app.post("/webhooks/cred-orders", async (req, res) => {
+  try {
+    const order = await handleCredWebhook(req);
+    console.log(`New CRED order webhook received: ${order.orderId}`);
+    console.log("Raw CRED webhook payload:", JSON.stringify(req.body));
+    broadcastSSE({ type: "new_cred_order", orderId: order.orderId });
+    res.status(200).send("OK");
+  } catch (err) {
+    if (err.statusCode === 401) {
+      console.warn("CRED webhook: unauthorized request");
+      return res.status(401).send("Unauthorized");
+    }
+    console.error(err);
+    res.status(500).send("Error processing webhook");
+  }
+});
+
+// ---- Amazon (FBA) order list, with download status per order ----
+app.get("/api/amazon/orders", async (req, res) => {
+  try {
+    const orders = await listRecentAmazonOrders(25);
+    const withStatus = await Promise.all(
+      orders.map(async (o) => ({
+        ...o,
+        downloaded: !!(await getPreviousChallan(`amazon:${o.orderId}`)),
+      }))
+    );
+    res.json(withStatus);
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ---- Generate an Amazon order's challan (deducts stock only on first generation) ----
+app.post("/api/amazon/orders/:id/challan", async (req, res) => {
+  try {
+    const order = await getAmazonOrderById(req.params.id);
+    if (!order) return res.status(404).json({ error: "Order not found" });
+
+    const logKey = `amazon:${order.orderId}`;
+    const previous = await getPreviousChallan(logKey);
+    let enrichedLineItems;
+
+    if (previous) {
+      console.log(`Re-download for ${order.orderId} — skipping stock deduction`);
+      enrichedLineItems = previous.lineItems;
+    } else {
+      enrichedLineItems = [];
+      for (const li of order.lineItems) {
+        const mapping = await resolveWebsiteProduct(li.title);
+        if (!mapping) {
+          return res.status(422).json({
+            error: `"${li.title}" has no entry in the Website Product Mapping tab — add it before generating this challan (Website Product Name, Base Product Name, Units Per Pack).`,
+          });
+        }
+        const baseQuantityNeeded = li.quantity * mapping.unitsPerPack;
+        const batchInfo = await deductStock(
+          mapping.baseProductName,
+          baseQuantityNeeded,
+          mapping.grammage,
+          mapping.mrp
+        );
+        enrichedLineItems.push({
+          ...li,
+          ...batchInfo,
+          title: li.title,
+          quantity: baseQuantityNeeded,
+        });
+      }
+      await recordChallan(logKey, enrichedLineItems);
+    }
+
+    const challanOrder = {
+      ...order,
+      orderType: "New Order", // Amazon SP-API doesn't expose repeat-customer counts, unlike Shopify
+      totalOrdersCount: order.lineItems.reduce((sum, li) => sum + li.quantity, 0),
+    };
+
+    const pdfPath = await generateChallanPdf(challanOrder, enrichedLineItems, OUTPUT_DIR);
+    res.json({ url: `/files/${path.basename(pdfPath)}`, stockDeducted: !previous });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ---- Generate an Amazon order's invoice (no stock deduction) ----
+app.post("/api/amazon/orders/:id/invoice", async (req, res) => {
+  try {
+    const order = await getAmazonOrderById(req.params.id);
+    if (!order) return res.status(404).json({ error: "Order not found" });
+
+    const pdfPath = await generateInvoicePdf(order, order.lineItems, OUTPUT_DIR);
+    res.json({ url: `/files/${path.basename(pdfPath)}` });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ---- CRED order list, with download status per order ----
+app.get("/api/cred/orders", async (req, res) => {
+  try {
+    const orders = await listRecentCredOrders(25);
+    const withStatus = await Promise.all(
+      orders.map(async (o) => ({
+        ...o,
+        downloaded: !!(await getPreviousChallan(`cred:${o.orderId}`)),
+      }))
+    );
+    res.json(withStatus);
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ---- Generate a CRED order's challan (deducts stock only on first generation) ----
+app.post("/api/cred/orders/:id/challan", async (req, res) => {
+  try {
+    const order = await getCredOrderById(req.params.id);
+    if (!order) return res.status(404).json({ error: "Order not found" });
+
+    const logKey = `cred:${order.orderId}`;
+    const previous = await getPreviousChallan(logKey);
+    let enrichedLineItems;
+
+    if (previous) {
+      console.log(`Re-download for ${order.orderId} — skipping stock deduction`);
+      enrichedLineItems = previous.lineItems;
+    } else {
+      enrichedLineItems = [];
+      for (const li of order.lineItems) {
+        // CRED SKUs can be combos of multiple base products — resolveCredSku
+        // returns one or more base-product components per SKU, unlike
+        // resolveWebsiteProduct which is always a single product.
+        const components = await resolveCredSku(li.sku || li.title);
+        if (!components) {
+          return res.status(422).json({
+            error: `CRED SKU "${li.sku || li.title}" has no entry in the CRED SKU Details tab — add it before generating this challan.`,
+          });
+        }
+        for (const component of components) {
+          const baseQuantityNeeded = li.quantity * component.unitsPerPack;
+          const mrpValue = parseFloat(String(component.mrp).replace(/[^0-9.]/g, "")) || 0;
+
+          if (mrpValue === 0) {
+            // MRP of 0 marks a non-priced item (freebie, gift card, coupon)
+            // — these live in the "Extra" category tab, which has no
+            // MRP/Grammage columns, so deduct by product name only rather
+            // than passing grammage/mrp filters that would never match.
+            const batchInfo = await deductStock(component.baseProductName, baseQuantityNeeded);
+            enrichedLineItems.push({
+              ...li,
+              ...batchInfo,
+              title: batchInfo.productName,
+              quantity: baseQuantityNeeded,
+              mrp: "0",
+            });
+            continue;
+          }
+
+          const batchInfo = await deductStock(
+            component.baseProductName,
+            baseQuantityNeeded,
+            component.grammage,
+            component.mrp
+          );
+          enrichedLineItems.push({
+            ...li,
+            ...batchInfo,
+            title: batchInfo.productName,
+            quantity: baseQuantityNeeded,
+          });
+        }
+      }
+      await recordChallan(logKey, enrichedLineItems);
+    }
+
+    const challanOrder = {
+      ...order,
+      orderType: "New Order",
+      totalOrdersCount: order.lineItems.reduce((sum, li) => sum + li.quantity, 0),
+    };
+
+    const pdfPath = await generateChallanPdf(challanOrder, enrichedLineItems, OUTPUT_DIR);
+    res.json({ url: `/files/${path.basename(pdfPath)}`, stockDeducted: !previous });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ---- Generate a CRED order's invoice (no stock deduction) ----
+app.post("/api/cred/orders/:id/invoice", async (req, res) => {
+  try {
+    const order = await getCredOrderById(req.params.id);
     if (!order) return res.status(404).json({ error: "Order not found" });
 
     const pdfPath = await generateInvoicePdf(order, order.lineItems, OUTPUT_DIR);

@@ -9,6 +9,7 @@ const CATEGORY_TABS = [
   "Air Popped Chips",
   "Krinkle Cut Chips",
   "Nachos",
+  "Extra", // non-priced items with real quantity tracking: freebies, gift cards, coupons — no MRP/Grammage columns
 ];
 
 // A separate tab mapping what's actually SOLD (e.g. "Cheddar Cheese Gourmet
@@ -20,6 +21,16 @@ const CATEGORY_TABS = [
 // headers:
 //   Website Product Name | Base Product Name | Grammage | MRP | Units Per Pack
 const MAPPING_TAB = "Website Product Mapping";
+
+// Same idea as MAPPING_TAB, but for CRED orders. A CRED SKU can be a combo
+// (e.g. a gift box of 3 flavors), so unlike the website mapping tab where
+// each website product name maps to exactly one row, a single CRED
+// product name can appear across MULTIPLE rows here — one row per
+// component product in the combo, with "Cred Product Name" written once
+// on the first row and left blank below (same forward-fill convention as
+// the category tabs). Exact column headers:
+//   Cred Product Name | Base Product Name | Grammage | MRP | Units Per Pack
+const CRED_MAPPING_TAB = "Cred Product Mapping";
 
 let sheetsClientPromise = null;
 
@@ -275,7 +286,86 @@ async function listProductsForDropdown() {
   });
 }
 
-module.exports = { findProductBatches, deductStock, listProductsForDropdown, resolveWebsiteProduct, CATEGORY_TABS };
+module.exports = {
+  findProductBatches,
+  deductStock,
+  listProductsForDropdown,
+  resolveWebsiteProduct,
+  resolveCredSku,
+  CATEGORY_TABS,
+};
+
+/**
+ * Looks up a CRED SKU in the "CRED SKU Mapping" tab, returning every
+ * component product it represents — a single-item SKU resolves to one
+ * component, a combo SKU resolves to several (all rows sharing that CRED
+ * SKU value). All inventory data (stock, batch, actual grammage/MRP) still
+ * lives in the category tabs, same as resolveWebsiteProduct — this tab
+ * only pins down which base product + variant each CRED SKU corresponds
+ * to and how many units of it one sale represents.
+ *
+ * Returns null if the SKU has no rows in the tab — callers should treat
+ * this as "we don't know how to deduct stock for this SKU" rather than
+ * guessing, same reasoning as resolveWebsiteProduct.
+ */
+/**
+ * Looks up a CRED product name in the "CRED SKU Mapping" tab, returning
+ * every component product it represents — a single-item product resolves
+ * to one component, a combo resolves to several (all rows following that
+ * product's name, up to the next named row). All inventory data (stock,
+ * batch, actual grammage/MRP) still lives in the category tabs, same as
+ * resolveWebsiteProduct — this tab only pins down which base product +
+ * variant each CRED product corresponds to and how many units of it one
+ * sale represents.
+ *
+ * Returns null if the product has no rows in the tab — callers should
+ * treat this as "we don't know how to deduct stock for this product"
+ * rather than guessing, same reasoning as resolveWebsiteProduct.
+ */
+async function resolveCredSku(credSkuOrName) {
+  const sheets = await getSheetsClient();
+  const res = await sheets.spreadsheets.values.get({
+    spreadsheetId: process.env.MASTER_SHEET_ID,
+    range: `'${CRED_MAPPING_TAB}'!A1:E500`,
+  });
+
+  const rows = res.data.values || [];
+  const header = rows[0] || [];
+  const nameCol = header.indexOf("Cred Product Name");
+  const baseCol = header.indexOf("Base Product Name");
+  const grammageCol = header.indexOf("Grammage");
+  const mrpCol = header.indexOf("MRP");
+  const unitsCol = header.indexOf("Units Per Pack");
+
+  const target = credSkuOrName.trim().toLowerCase();
+  const components = [];
+
+  // Cred Product Name is only filled in on the first row of each
+  // product's group of component rows (blank below, same convention as
+  // the category tabs) — forward-fill it so every component row is
+  // correctly attributed.
+  let currentProductName = null;
+  for (let i = 1; i < rows.length; i++) {
+    const row = rows[i];
+    const rawName = nameCol >= 0 ? row[nameCol] : null;
+    if (rawName && rawName.trim()) {
+      currentProductName = rawName.trim();
+    }
+    if (!currentProductName) continue;
+
+    if (currentProductName.toLowerCase() === target) {
+      const baseProductName = baseCol >= 0 ? row[baseCol] : null;
+      if (!baseProductName || !baseProductName.trim()) continue; // skip blank spacer rows
+      components.push({
+        baseProductName: baseProductName.trim(),
+        grammage: grammageCol >= 0 ? row[grammageCol] : null,
+        mrp: mrpCol >= 0 ? row[mrpCol] : null,
+        unitsPerPack: parseInt(unitsCol >= 0 ? row[unitsCol] : "", 10) || 1,
+      });
+    }
+  }
+  return components.length > 0 ? components : null;
+}
 
 /**
  * Looks up a website-facing product name (as it appears on a Shopify/Amazon
