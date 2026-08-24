@@ -59,39 +59,15 @@ function sleep(ms) {
 }
 
 /**
- * Address/buyer-name fields are PII-restricted by Amazon — a plain
- * getOrderAddress call comes back with those fields blank unless the
- * request carries a Restricted Data Token (RDT) scoped to that specific
- * order, AND the app has been approved by Amazon for PII access (see
- * setup notes above). This requests that token for a single order.
+ * Address/buyer-name fields are PII-restricted by Amazon. TTP's app was
+ * only approved for the non-restricted "Inventory and Order Tracking"
+ * role — not the Restricted roles needed for buyer PII — so these
+ * fields are deliberately left blank rather than fetched. (Confirmed
+ * with Aniket: blank name/address on Amazon challans/invoices is fine —
+ * only order ID/invoice number matters there.) If PII access is approved
+ * in the future, reintroduce a getOrderAddress call using a Restricted
+ * Data Token here.
  */
-async function getRestrictedDataToken(client, orderId) {
-  const res = await client.callAPI({
-    operation: "createRestrictedDataToken",
-    endpoint: "tokens",
-    body: {
-      restrictedResources: [
-        {
-          method: "GET",
-          path: `/orders/v0/orders/${orderId}/address`,
-          dataElements: ["buyerInfo", "shippingAddress"],
-        },
-      ],
-    },
-  });
-  return res.restrictedDataToken;
-}
-
-async function getOrderAddress(client, orderId) {
-  const rdt = await getRestrictedDataToken(client, orderId);
-  const res = await client.callAPI({
-    operation: "getOrderAddress",
-    endpoint: "orders",
-    path: { orderId },
-    restricted_data_token: rdt,
-  });
-  return res.payload || {};
-}
 
 async function getOrderItems(client, orderId) {
   const res = await client.callAPI({
@@ -108,8 +84,7 @@ async function getOrderItems(client, orderId) {
  * generateChallan.js/generateInvoice.js don't need channel-specific
  * branches.
  */
-function buildOrder(baseOrder, address, items) {
-  const shipping = address.ShippingAddress || {};
+function buildOrder(baseOrder, items) {
   const lineItems = items.map((li) => {
     const quantity = li.QuantityOrdered || 0;
     const itemPrice = parseFloat(li.ItemPrice && li.ItemPrice.Amount) || 0; // aggregate, not per-unit
@@ -129,16 +104,16 @@ function buildOrder(baseOrder, address, items) {
     id: baseOrder.AmazonOrderId,
     orderId: baseOrder.AmazonOrderId,
     createdAt: baseOrder.PurchaseDate,
-    customerName: shipping.Name || (address.BuyerInfo && address.BuyerInfo.Name) || "N/A",
+    customerName: "N/A", // PII-restricted — see note above
     customerOrdersCount: 0, // SP-API doesn't expose repeat-customer counts the way Shopify does
-    customerPhone: shipping.Phone || "",
+    customerPhone: "", // PII-restricted — see note above
     shippingAddress: {
-      address1: shipping.AddressLine1 || "",
-      address2: [shipping.AddressLine2, shipping.AddressLine3].filter(Boolean).join(", "),
-      city: shipping.City || "",
-      province: shipping.StateOrRegion || "",
-      zip: shipping.PostalCode || "",
-      country: shipping.CountryCode || "IN",
+      address1: "", // PII-restricted — see note above
+      address2: "",
+      city: "",
+      province: "",
+      zip: "",
+      country: "IN",
     },
     financialStatus: "paid", // Amazon settles centrally; FBA orders are prepaid from TTP's side
     lineItems,
@@ -148,10 +123,10 @@ function buildOrder(baseOrder, address, items) {
 
 /**
  * Lists recent Amazon FBA orders (most recent first). Fetches the base
- * order list in one call, then per order fetches items + a PII-scoped
- * address — those per-order calls are rate-limited by Amazon to about one
- * every 2 seconds, so this deliberately keeps `limit` modest by default;
- * raising it will make "load orders" noticeably slower.
+ * order list in one call, then per order fetches items — those per-order
+ * calls are rate-limited by Amazon to about one every 2 seconds, so this
+ * deliberately keeps `limit` modest by default; raising it will make
+ * "load orders" noticeably slower.
  */
 async function listRecentOrders(limit = 15, lookbackDays = 30) {
   const client = await getClient();
@@ -172,9 +147,7 @@ async function listRecentOrders(limit = 15, lookbackDays = 30) {
     const orderId = baseOrder.AmazonOrderId;
     const items = await getOrderItems(client, orderId);
     await sleep(2100);
-    const address = await getOrderAddress(client, orderId);
-    await sleep(2100);
-    orders.push(buildOrder(baseOrder, address, items));
+    orders.push(buildOrder(baseOrder, items));
   }
   return orders;
 }
@@ -194,10 +167,8 @@ async function getOrderById(orderId) {
   if (!baseOrder) return null;
 
   const items = await getOrderItems(client, orderId);
-  await sleep(2100);
-  const address = await getOrderAddress(client, orderId);
 
-  return buildOrder(baseOrder, address, items);
+  return buildOrder(baseOrder, items);
 }
 
 module.exports = { listRecentOrders, getOrderById };
