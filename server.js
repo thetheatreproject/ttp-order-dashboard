@@ -55,6 +55,40 @@ app.get("/events", (req, res) => {
   });
 });
 
+// ---- Background polling for new Amazon orders (Amazon has no webhook
+// like Shopify's, so this is how the badge/live-update still works —
+// periodically re-check the order list and broadcast an SSE event for
+// anything new since the last check) ----
+let knownAmazonOrderIds = null; // null = not yet baselined
+const AMAZON_POLL_INTERVAL_MS = 5 * 60 * 1000; // 5 minutes — well within Amazon's rate limits
+
+async function pollAmazonOrders() {
+  try {
+    const orders = await listRecentAmazonOrders(25);
+    const currentIds = new Set(orders.map((o) => o.orderId));
+
+    if (knownAmazonOrderIds === null) {
+      // First run since server start — just establish the baseline,
+      // don't broadcast for orders that already existed before we
+      // started watching (they aren't "new").
+      knownAmazonOrderIds = currentIds;
+      return;
+    }
+
+    for (const id of currentIds) {
+      if (!knownAmazonOrderIds.has(id)) {
+        console.log(`New Amazon order detected: ${id}`);
+        broadcastSSE({ type: "new_amazon_order", orderId: id });
+      }
+    }
+    knownAmazonOrderIds = currentIds;
+  } catch (err) {
+    console.error("Amazon order poll failed:", err.message);
+  }
+}
+pollAmazonOrders(); // establish baseline immediately on startup
+setInterval(pollAmazonOrders, AMAZON_POLL_INTERVAL_MS);
+
 // ---- Shopify order list, with download status per order ----
 app.get("/api/shopify/orders", async (req, res) => {
   try {
