@@ -134,22 +134,42 @@ function buildOrder(baseOrder, items) {
  * deliberately keeps `limit` modest by default; raising it will make
  * "load orders" noticeably slower.
  */
-async function listRecentOrders(limit = 15, lookbackDays = 30) {
+/**
+ * Lists recent Amazon FBA orders (most recent first). Amazon's getOrders
+ * caps each response at roughly 100 orders — with TTP getting 6-8 orders
+ * a day, a 30-day lookback window can be 200+ orders, spanning multiple
+ * pages. This follows NextToken to walk through every page rather than
+ * silently only seeing whichever page Amazon happened to return first
+ * (which is NOT guaranteed to be the most recent one) — fetches items +
+ * are rate-limited to about one every 2 seconds, so this deliberately
+ * keeps `limit` modest by default; raising it will make "load orders"
+ * noticeably slower.
+ */
+async function listRecentOrders(limit = 15, lookbackDays = 7) {
   const client = await getClient();
   const createdAfter = new Date(Date.now() - lookbackDays * 24 * 60 * 60 * 1000).toISOString();
 
-  const listRes = await client.callAPI({
-    operation: "getOrders",
-    endpoint: "orders",
-    query: {
-      MarketplaceIds: [MARKETPLACE_ID],
-      CreatedAfter: createdAfter,
-    },
-  });
+  let allBaseOrders = [];
+  let nextToken = null;
+  let pageCount = 0;
+  const MAX_PAGES = 10; // safety cap — 10 pages at ~100/page covers 1000+ orders
+
+  do {
+    const query = nextToken
+      ? { NextToken: nextToken } // per Amazon's pagination convention, other filters are dropped on continuation calls
+      : { MarketplaceIds: [MARKETPLACE_ID], CreatedAfter: createdAfter };
+
+    const listRes = await client.callAPI({ operation: "getOrders", endpoint: "orders", query });
+    allBaseOrders = allBaseOrders.concat(listRes.Orders || []);
+    nextToken = listRes.NextToken || null;
+    pageCount++;
+    if (nextToken) await sleep(2100); // getOrders is also rate-limited between page fetches
+  } while (nextToken && pageCount < MAX_PAGES);
+
   // Amazon's getOrders doesn't guarantee newest-first ordering — sort
   // explicitly before taking the first `limit`, otherwise the most
   // recent order can end up past the cutoff and never show up.
-  const sortedOrders = (listRes.Orders || []).sort(
+  const sortedOrders = allBaseOrders.sort(
     (a, b) => new Date(b.PurchaseDate) - new Date(a.PurchaseDate)
   );
   const baseOrders = sortedOrders.slice(0, limit);
