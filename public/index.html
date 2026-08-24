@@ -107,6 +107,7 @@
 
 <script>
   let productCategories = [];
+  let amazonOrdersCache = [];
 
   function showScreen(id) {
     document.querySelectorAll('.screen').forEach(s => s.classList.remove('active'));
@@ -225,6 +226,7 @@
     try {
       const res = await fetch('/api/amazon/orders');
       const orders = await res.json();
+      amazonOrdersCache = orders;
       status.textContent = orders.length + ' recent orders';
       list.innerHTML = '';
       for (const order of orders) {
