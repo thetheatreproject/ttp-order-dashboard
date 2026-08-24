@@ -25,10 +25,17 @@ async function getSheetsClient() {
 }
 
 /**
- * Ensures the "Challan Log" tab exists with the right header row. Safe to
- * call every time — does nothing if the tab is already there.
+ * Ensures the "Challan Log" tab exists with the right header row. The
+ * existence check itself only needs to happen once per server process —
+ * the tab doesn't disappear once created — so this is cached in memory
+ * rather than calling spreadsheets.get() (a full read request) on every
+ * single challan/order-list lookup, which was needlessly burning through
+ * Google's per-minute read quota.
  */
+let logTabConfirmedToExist = false;
 async function ensureLogTab() {
+  if (logTabConfirmedToExist) return;
+
   const sheets = await getSheetsClient();
   const spreadsheet = await sheets.spreadsheets.get({ spreadsheetId: process.env.MASTER_SHEET_ID });
   const exists = spreadsheet.data.sheets.some((s) => s.properties.title === LOG_TAB);
@@ -45,14 +52,18 @@ async function ensureLogTab() {
       requestBody: { values: [["Order ID", "Generated At", "Line Items (JSON)"]] },
     });
   }
+  logTabConfirmedToExist = true;
 }
 
 /**
- * Returns the previously-recorded enriched line items (with batch numbers
- * already assigned) for this order, or null if a challan has never been
- * generated for it before.
+ * Reads the entire Challan Log once and returns it as a Map keyed by
+ * order ID. Use this instead of calling getPreviousChallan() in a loop
+ * over an order list — checking N orders that way means N separate
+ * reads (one full-tab fetch each), which is exactly what was blowing
+ * through Google's read-request quota when a page loaded 15-25 orders
+ * at once. One batch read here replaces all of those.
  */
-async function getPreviousChallan(orderId) {
+async function getAllChallans() {
   await ensureLogTab();
   const sheets = await getSheetsClient();
   const res = await sheets.spreadsheets.values.get({
@@ -61,13 +72,27 @@ async function getPreviousChallan(orderId) {
   });
 
   const rows = res.data.values || [];
-  const match = rows.find((row) => row[0] === orderId);
-  if (!match) return null;
+  const byOrderId = new Map();
+  for (const row of rows) {
+    if (!row[0]) continue;
+    byOrderId.set(row[0], {
+      generatedAt: row[1],
+      lineItems: JSON.parse(row[2] || "[]"),
+    });
+  }
+  return byOrderId;
+}
 
-  return {
-    generatedAt: match[1],
-    lineItems: JSON.parse(match[2] || "[]"),
-  };
+/**
+ * Returns the previously-recorded enriched line items (with batch numbers
+ * already assigned) for this order, or null if a challan has never been
+ * generated for it before. Use this for single-order lookups (e.g. when
+ * actually generating a challan) — for checking many orders at once, use
+ * getAllChallans() instead to avoid N separate reads.
+ */
+async function getPreviousChallan(orderId) {
+  const all = await getAllChallans();
+  return all.get(orderId) || null;
 }
 
 /**
@@ -89,4 +114,4 @@ async function recordChallan(orderId, enrichedLineItems) {
   });
 }
 
-module.exports = { getPreviousChallan, recordChallan };
+module.exports = { getPreviousChallan, getAllChallans, recordChallan };

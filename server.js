@@ -10,7 +10,7 @@ const { handleWebhook: handleCredWebhook, getOrderById: getCredOrderById, listRe
 const { deductStock, listProductsForDropdown, resolveWebsiteProduct, resolveCredSku } = require("./masterSheet");
 const { generateChallanPdf } = require("./generateChallan");
 const { generateInvoicePdf } = require("./generateInvoice");
-const { getPreviousChallan, recordChallan } = require("./challanLog");
+const { getPreviousChallan, getAllChallans, recordChallan } = require("./challanLog");
 
 const app = express();
 const OUTPUT_DIR = path.join(__dirname, "generated_pdfs");
@@ -59,12 +59,11 @@ app.get("/events", (req, res) => {
 app.get("/api/shopify/orders", async (req, res) => {
   try {
     const orders = await listRecentOrders(25);
-    const withStatus = await Promise.all(
-      orders.map(async (o) => ({
-        ...o,
-        downloaded: !!(await getPreviousChallan(`shopify:${o.orderId}`)),
-      }))
-    );
+    const challanLog = await getAllChallans(); // one read for all orders, not one per order
+    const withStatus = orders.map((o) => ({
+      ...o,
+      downloaded: challanLog.has(`shopify:${o.orderId}`),
+    }));
     res.json(withStatus);
   } catch (err) {
     console.error(err);
@@ -163,12 +162,11 @@ app.post("/webhooks/cred-orders", async (req, res) => {
 app.get("/api/amazon/orders", async (req, res) => {
   try {
     const orders = await listRecentAmazonOrders(25);
-    const withStatus = await Promise.all(
-      orders.map(async (o) => ({
-        ...o,
-        downloaded: !!(await getPreviousChallan(`amazon:${o.orderId}`)),
-      }))
-    );
+    const challanLog = await getAllChallans(); // one read for all orders, not one per order
+    const withStatus = orders.map((o) => ({
+      ...o,
+      downloaded: challanLog.has(`amazon:${o.orderId}`),
+    }));
     res.json(withStatus);
   } catch (err) {
     console.error(err);
@@ -247,12 +245,11 @@ app.post("/api/amazon/orders/:id/invoice", async (req, res) => {
 app.get("/api/cred/orders", async (req, res) => {
   try {
     const orders = await listRecentCredOrders(25);
-    const withStatus = await Promise.all(
-      orders.map(async (o) => ({
-        ...o,
-        downloaded: !!(await getPreviousChallan(`cred:${o.orderId}`)),
-      }))
-    );
+    const challanLog = await getAllChallans(); // one read for all orders, not one per order
+    const withStatus = orders.map((o) => ({
+      ...o,
+      downloaded: challanLog.has(`cred:${o.orderId}`),
+    }));
     res.json(withStatus);
   } catch (err) {
     console.error(err);
