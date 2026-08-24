@@ -85,12 +85,15 @@ async function getOrderItems(client, orderId) {
 }
 
 /**
- * Normalizes one Amazon order (base order + address + items) into the
- * same shape shopify.js's normalizeOrder produces, so server.js/
- * generateChallan.js/generateInvoice.js don't need channel-specific
- * branches.
+ * Normalizes one Amazon order (base order + items) into the same shape
+ * shopify.js's normalizeOrder produces, so server.js/generateChallan.js/
+ * generateInvoice.js don't need channel-specific branches. `items` can be
+ * omitted (empty array) for the order-list view, which never displays
+ * line items and shouldn't pay the cost of fetching them — only
+ * getOrderById (used when actually generating a challan for one order)
+ * passes real items.
  */
-function buildOrder(baseOrder, items) {
+function buildOrder(baseOrder, items = []) {
   const lineItems = items.map((li) => {
     const quantity = li.QuantityOrdered || 0;
     const itemPrice = parseFloat(li.ItemPrice && li.ItemPrice.Amount) || 0; // aggregate, not per-unit
@@ -128,22 +131,20 @@ function buildOrder(baseOrder, items) {
 }
 
 /**
- * Lists recent Amazon FBA orders (most recent first). Fetches the base
- * order list in one call, then per order fetches items — those per-order
- * calls are rate-limited by Amazon to about one every 2 seconds, so this
- * deliberately keeps `limit` modest by default; raising it will make
- * "load orders" noticeably slower.
- */
-/**
- * Lists recent Amazon FBA orders (most recent first). Amazon's getOrders
- * caps each response at roughly 100 orders — with TTP getting 6-8 orders
- * a day, a 30-day lookback window can be 200+ orders, spanning multiple
- * pages. This follows NextToken to walk through every page rather than
- * silently only seeing whichever page Amazon happened to return first
- * (which is NOT guaranteed to be the most recent one) — fetches items +
- * are rate-limited to about one every 2 seconds, so this deliberately
- * keeps `limit` modest by default; raising it will make "load orders"
- * noticeably slower.
+ * Lists recent Amazon FBA orders (most recent first), for the order-list
+ * screen only. Deliberately does NOT fetch each order's line items —
+ * that data isn't shown in the list view, and fetching it per order
+ * (rate-limited to about one every 2 seconds) was the entire reason this
+ * used to take minutes to load for 15+ orders. Line items are fetched
+ * fresh, on demand, only when a specific order's challan is actually
+ * generated (see getOrderById below) — this makes the list itself fast,
+ * bounded mainly by however many getOrders pages Amazon returns.
+ *
+ * Amazon's getOrders caps each response at roughly 100 orders — with TTP
+ * getting 6-8 orders a day, a 30-day lookback window can be 200+ orders,
+ * spanning multiple pages. This follows NextToken to walk through every
+ * page rather than silently only seeing whichever page Amazon happened
+ * to return first (which is NOT guaranteed to be the most recent one).
  */
 async function listRecentOrders(limit = 15, lookbackDays = 7) {
   const client = await getClient();
@@ -174,14 +175,8 @@ async function listRecentOrders(limit = 15, lookbackDays = 7) {
   );
   const baseOrders = sortedOrders.slice(0, limit);
 
-  const orders = [];
-  for (const baseOrder of baseOrders) {
-    const orderId = baseOrder.AmazonOrderId;
-    const items = await getOrderItems(client, orderId);
-    await sleep(2100);
-    orders.push(buildOrder(baseOrder, items));
-  }
-  return orders;
+  // No per-order getOrderItems calls here — see doc comment above.
+  return baseOrders.map((baseOrder) => buildOrder(baseOrder));
 }
 
 /**
