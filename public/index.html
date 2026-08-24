@@ -235,12 +235,15 @@
       for (const order of orders) {
         const row = document.createElement('div');
         row.className = 'order-row';
-        const date = new Date(order.createdAt).toLocaleDateString('en-IN');
+        const createdDate = new Date(order.createdAt);
+        const date = createdDate.toLocaleDateString('en-IN');
+        const time = createdDate.toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' });
         row.innerHTML = `
           <span class="dot ${order.downloaded ? 'dot-done' : 'dot-new'}"></span>
           <div class="order-info">
             <p class="order-id">${order.orderId} — ${order.customerName || ''}</p>
             <p class="order-meta">${date}, Rs ${order.totalPrice}</p>
+            <p class="order-meta">Received: ${date} at ${time}</p>
           </div>
           <button class="mini-btn" data-id="${order.id}" data-action="challan">Challan</button>
         `;
