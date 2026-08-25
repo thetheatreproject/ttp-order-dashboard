@@ -29,7 +29,8 @@
   button { cursor: pointer; font-family: inherit; }
   .ttp-logo-img { width: 120px; height: auto; display: block; margin: 0 auto 14px; }
   .brand-eyebrow { font-family: "Bebas Neue", sans-serif; font-size: 13px; letter-spacing: 0.26em; color: var(--ttp-red); text-align: center; margin: 0 0 6px; }
-  #start-screen { text-align: center; background: var(--ivory-peach-soft); margin: -20px; padding: 20px; min-height: calc(100vh - 20px); display: flex; flex-direction: column; align-items: center; justify-content: center; }
+  #start-screen { text-align: center; padding-top: 4rem; background: var(--ivory-peach-soft); margin: -20px; padding-left: 20px; padding-right: 20px; padding-bottom: 40px; min-height: calc(100vh - 20px); }
+  #start-screen p { font-family: "Bebas Neue", sans-serif; font-size: 26px; letter-spacing: 0.01em; color: var(--ink); margin-bottom: 2rem; }
   #start-btn { position: relative; background: var(--ttp-red); color: var(--paper); border: none; padding: 14px 48px; border-radius: 12px; font-family: "Bebas Neue", sans-serif; font-size: 18px; letter-spacing: 0.12em; transition: transform 120ms ease; }
   #start-btn:active { transform: scale(0.97); }
   .screen-header { display: flex; align-items: flex-start; justify-content: space-between; margin-bottom: 16px; }
@@ -41,10 +42,11 @@
   .tile:active { transform: scale(0.98); }
   .tile-row { display: flex; gap: 10px; }
   .tile-half { flex: 1; text-align: left; }
-  .icon-chip { display: inline-flex; align-items: center; justify-content: center; width: 26px; height: 26px; margin-right: 10px; vertical-align: middle; }
-  .tile-icon { width: 22px; height: 22px; object-fit: contain; }
+  .icon-chip { display: inline-flex; align-items: center; justify-content: center; width: 30px; height: 30px; border-radius: 9px; background: var(--ivory-peach); margin-right: 10px; vertical-align: middle; }
+  .tile-icon { width: 16px; height: 16px; object-fit: contain; }
+  .tile-half > div { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
   .tile-half-label { display: flex; align-items: center; gap: 0; margin: 0; white-space: nowrap; }
-  .badge { font-size: 12px; padding: 3px 10px; border-radius: 6px; white-space: nowrap; }
+  .badge { font-family: "Bebas Neue", sans-serif; font-size: 13px; letter-spacing: 0.05em; padding: 4px 12px; border-radius: 20px; }
   .badge-new { background: var(--status-green-bg); color: var(--status-green); }
   .badge-muted { background: #EFEAE4; color: var(--slate); }
   #custom-tile { border-style: dashed; border-color: #C9B9AA; background: transparent; box-shadow: none; }
@@ -52,7 +54,7 @@
   #custom-tile span { color: var(--slate); font-size: 14.5px; font-weight: 500; width: 100%; text-align: center; }
   .back-btn { background: none; border: none; color: var(--slate); font-size: 13px; margin-bottom: 10px; padding: 0; }
   h2 { font-family: "Bebas Neue", sans-serif; font-size: 26px; margin: 0 0 12px; color: var(--ink); }
-  .order-row { display: flex; align-items: center; gap: 10px; padding: 14px 12px; border-bottom: 1px solid var(--card-border); background: var(--paper); }
+  .order-row { display: flex; align-items: center; gap: 10px; padding: 12px 4px; border-bottom: 1px solid var(--card-border); background: var(--paper); }
   .dot { width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0; }
   .dot-new { background: var(--status-green); }
   .dot-done { background: var(--ttp-red); }
@@ -60,13 +62,12 @@
   .order-info p { margin: 0; }
   .order-id { font-size: 13px; font-weight: 600; color: var(--ink); }
   .order-meta { font-size: 12px; color: var(--slate); }
-  .mini-btn { font-size: 12px; font-weight: 600; padding: 6px 10px; border-radius: 6px; border: none; margin-left: 6px; transition: transform 120ms ease; }
+  .mini-btn { font-family: "Bebas Neue", sans-serif; font-size: 12px; letter-spacing: 0.05em; padding: 7px 13px; border-radius: 20px; border: none; margin-left: 6px; transition: transform 120ms ease; }
   .mini-btn:active { transform: scale(0.94); }
   .mini-btn[data-action="challan"] { background: var(--ttp-red); color: var(--paper); }
   .mini-btn[data-action="invoice"] { background: var(--ivory-peach); color: #A8432F; }
   .legend { font-size: 12px; color: var(--slate); margin-top: 12px; }
   input, select { height: 38px; border-radius: 10px; border: 1px solid var(--card-border); background: var(--paper); padding: 0 12px; font-size: 13px; color: var(--ink); width: 100%; margin-bottom: 10px; font-family: inherit; }
-  input:focus, select:focus { outline: none; border-color: var(--ttp-red); box-shadow: 0 0 0 2px var(--ttp-red-40); }
   input::placeholder { color: #B8A99B; }
   .product-row { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 10px; padding: 12px; border-bottom: none; background: var(--ivory-peach-soft); border-radius: 12px; }
   .product-row select { margin-bottom: 0; flex: 1 1 100%; }
@@ -84,7 +85,9 @@
 <body>
 
 <div id="start-screen" class="screen active">
-  <img src="/images/ttp-logo.png" alt="The Theatre Project" class="ttp-logo-img" style="margin-bottom: 28px;">
+  <img src="/images/ttp-logo.png" alt="The Theatre Project" class="ttp-logo-img">
+  <p class="brand-eyebrow">NOW SHOWING</p>
+  <p>The Theatre Project</p>
   <button id="start-btn">Start</button>
 </div>
 
@@ -98,8 +101,8 @@
     <span class="badge badge-new" id="shopify-badge">…</span>
   </div>
   <div class="tile-row">
-    <div class="tile tile-half" id="amazon-tile"><span class="tile-half-label"><span class="icon-chip"><img src="/images/amazon.png" alt="" class="tile-icon"></span>Amazon</span><span class="badge badge-new" id="amazon-badge">…</span></div>
-    <div class="tile tile-half" id="cred-tile"><span class="tile-half-label"><span class="icon-chip"><img src="/images/cred.png" alt="" class="tile-icon"></span>CRED</span><span class="badge badge-new" id="cred-badge">…</span></div>
+    <div class="tile tile-half" id="amazon-tile"><div><p class="tile-half-label"><span class="icon-chip"><img src="/images/amazon.png" alt="" class="tile-icon"></span>Amazon</p><span class="badge badge-new" id="amazon-badge">…</span></div></div>
+    <div class="tile tile-half" id="cred-tile"><div><p class="tile-half-label"><span class="icon-chip"><img src="/images/cred.png" alt="" class="tile-icon"></span>CRED</p><span class="badge badge-new" id="cred-badge">…</span></div></div>
   </div>
   <div class="tile" id="custom-tile"><span>+ Custom challan</span></div>
 </div>
