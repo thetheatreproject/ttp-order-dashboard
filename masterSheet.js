@@ -442,7 +442,7 @@ async function resolveAmazonProduct(amazonProductName) {
     const sheets = await getSheetsClient();
     const res = await sheets.spreadsheets.values.get({
       spreadsheetId: process.env.MASTER_SHEET_ID,
-      range: `'${AMAZON_MAPPING_TAB}'!A1:E500`,
+      range: `'${AMAZON_MAPPING_TAB}'!A1:F500`,
     });
     rows = res.data.values || [];
     setCachedTab(AMAZON_MAPPING_TAB, rows);
