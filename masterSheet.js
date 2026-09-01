@@ -494,6 +494,18 @@ async function resolveAmazonProduct(amazonProductName) {
  * "we don't know how to deduct stock for this product" rather than
  * guessing, since a wrong guess here silently corrupts stock counts.
  */
+/**
+ * Looks up a website-facing product name (as it appears on a Shopify
+ * order) in the "Website Product Mapping" tab, returning every component
+ * product it represents — same combo-capable pattern as
+ * resolveAmazonProduct/resolveCredSku. A single-item product resolves to
+ * one component; a combo (multiple base products under one website
+ * listing) resolves to several, following the same forward-fill
+ * convention already used throughout your sheet (name written once on
+ * the first row of a combo, blank on the rows below).
+ *
+ * Returns null if the product has no rows in the tab.
+ */
 async function resolveWebsiteProduct(websiteProductName) {
   const cached = getCachedTab(MAPPING_TAB);
   let rows;
@@ -503,7 +515,7 @@ async function resolveWebsiteProduct(websiteProductName) {
     const sheets = await getSheetsClient();
     const res = await sheets.spreadsheets.values.get({
       spreadsheetId: process.env.MASTER_SHEET_ID,
-      range: `'${MAPPING_TAB}'!A1:E500`,
+      range: `'${MAPPING_TAB}'!A1:F500`,
     });
     rows = res.data.values || [];
     setCachedTab(MAPPING_TAB, rows);
@@ -516,17 +528,31 @@ async function resolveWebsiteProduct(websiteProductName) {
   const mrpCol = header.indexOf("MRP");
   const unitsCol = header.indexOf("Units Per Pack");
 
-  const target = websiteProductName.trim().toLowerCase();
+  const target = normalizeForMatch(websiteProductName);
+  const components = [];
+
+  // Website Product Name is only filled in on the first row of each
+  // product's group of component rows (blank below) — forward-fill it
+  // so every component row is correctly attributed to its combo.
+  let currentProductName = null;
   for (let i = 1; i < rows.length; i++) {
     const row = rows[i];
-    if ((row[nameCol] || "").trim().toLowerCase() === target) {
-      return {
-        baseProductName: row[baseCol],
-        grammage: row[grammageCol],
-        mrp: row[mrpCol],
-        unitsPerPack: parseInt(row[unitsCol], 10) || 1,
-      };
+    const rawName = nameCol >= 0 ? row[nameCol] : null;
+    if (rawName && rawName.trim()) {
+      currentProductName = rawName.trim();
+    }
+    if (!currentProductName) continue;
+
+    if (normalizeForMatch(currentProductName) === target) {
+      const baseProductName = baseCol >= 0 ? row[baseCol] : null;
+      if (!baseProductName || !baseProductName.trim()) continue; // skip blank spacer rows
+      components.push({
+        baseProductName: baseProductName.trim(),
+        grammage: grammageCol >= 0 ? row[grammageCol] : null,
+        mrp: mrpCol >= 0 ? row[mrpCol] : null,
+        unitsPerPack: parseInt(unitsCol >= 0 ? row[unitsCol] : "", 10) || 1,
+      });
     }
   }
-  return null;
+  return components.length > 0 ? components : null;
 }

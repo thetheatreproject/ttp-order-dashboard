@@ -121,27 +121,48 @@ app.post("/api/shopify/orders/:id/challan", async (req, res) => {
     } else {
       enrichedLineItems = [];
       for (const li of order.lineItems) {
-        const mapping = await resolveWebsiteProduct(li.title);
-        if (!mapping) {
+        // Website products can be combos (multiple base products under
+        // one listing) — resolveWebsiteProduct returns one or more
+        // components per product, same pattern as the Amazon/CRED
+        // mapping tabs.
+        const components = await resolveWebsiteProduct(li.title);
+        if (!components) {
           return res.status(422).json({
             error: `"${li.title}" has no entry in the Website Product Mapping tab — add it before generating this challan (Website Product Name, Base Product Name, Units Per Pack).`,
           });
         }
-        const baseQuantityNeeded = li.quantity * mapping.unitsPerPack;
-        const batchInfo = await deductStock(
-          mapping.baseProductName,
-          baseQuantityNeeded,
-          mapping.grammage,
-          mapping.mrp
-        );
-        enrichedLineItems.push({
-          ...li,
-          ...batchInfo,
-          // Show what was actually sold (e.g. "Pack of 10") on the challan,
-          // but the batch/stock info reflects the real base units deducted.
-          title: li.title,
-          quantity: baseQuantityNeeded,
-        });
+        for (const component of components) {
+          const baseQuantityNeeded = li.quantity * component.unitsPerPack;
+          const mrpValue = parseFloat(String(component.mrp).replace(/[^0-9.]/g, "")) || 0;
+
+          if (mrpValue === 0) {
+            // MRP of 0 marks a non-priced item (freebie, gift card,
+            // coupon) — deduct from the "Extra" category tab by name
+            // only, same convention as Amazon/CRED's freebie handling.
+            const batchInfo = await deductStock(component.baseProductName, baseQuantityNeeded);
+            enrichedLineItems.push({
+              ...li,
+              ...batchInfo,
+              title: batchInfo.productName,
+              quantity: baseQuantityNeeded,
+              mrp: "0",
+            });
+            continue;
+          }
+
+          const batchInfo = await deductStock(
+            component.baseProductName,
+            baseQuantityNeeded,
+            component.grammage,
+            component.mrp
+          );
+          enrichedLineItems.push({
+            ...li,
+            ...batchInfo,
+            title: batchInfo.productName,
+            quantity: baseQuantityNeeded,
+          });
+        }
       }
       await recordChallan(logKey, enrichedLineItems);
     }
