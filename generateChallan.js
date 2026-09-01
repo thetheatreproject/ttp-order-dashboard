@@ -62,6 +62,31 @@ function generateChallanPdf(order, enrichedLineItems, outputDir) {
     doc.text(finalStr, x + 4, yy + vPad, { width: available, align: opts.align || "left", lineBreak: false });
   }
 
+  // Measures how tall a field's text will actually be if allowed to wrap
+  // across multiple lines, at a fixed font size (no shrink-to-fit) — used
+  // to size a row BEFORE drawing it, so long text (e.g. a long address)
+  // wraps cleanly onto more lines instead of either getting truncated or
+  // overflowing/overlapping into the row below it.
+  function measureWrappedHeight(text, w, fontSize = 8, font = "Helvetica") {
+    doc.font(font).fontSize(fontSize);
+    return doc.heightOfString(text || "", { width: w - 8 });
+  }
+
+  // Draws text allowed to wrap onto multiple lines within a box of a
+  // known height (computed via measureWrappedHeight beforehand), vertically
+  // centered — the wrapping counterpart to fitText, which deliberately
+  // stays single-line.
+  function fitWrappedText(text, x, yy, w, boxHeight, opts = {}) {
+    const str = text || "";
+    const font = opts.font || "Helvetica";
+    const fontSize = opts.fontSize || 8;
+    const available = w - 8;
+    doc.font(font).fontSize(fontSize);
+    const textHeight = doc.heightOfString(str, { width: available });
+    const vPad = Math.max(2, (boxHeight - textHeight) / 2);
+    doc.text(str, x + 4, yy + vPad, { width: available, align: opts.align || "left" });
+  }
+
   function hLine(yy, xStart = pageLeft, xEnd = pageRight) {
     doc.moveTo(xStart, yy).lineTo(xEnd, yy).stroke();
   }
@@ -79,8 +104,8 @@ function generateChallanPdf(order, enrichedLineItems, outputDir) {
   // structures.
   const rowTops = [];
 
-  function startRow(dividers) {
-    rowTops.push({ top: y, dividers });
+  function startRow(dividers, height = rowH) {
+    rowTops.push({ top: y, dividers, height });
   }
 
   // ---- Row 1: CIN | Company Name | CHALLAN NO | value ----
@@ -112,17 +137,26 @@ function generateChallanPdf(order, enrichedLineItems, outputDir) {
   y += rowH;
 
   // ---- Row 5: CONSIGNEE LOCATION | value | DISPATCH | value ----
-  startRow([c2, c3, c4]);
+  // The address is allowed to wrap onto multiple lines (unlike the other
+  // fields, which stay single-line) since addresses are the one field
+  // genuinely too long to safely truncate — this row's height is
+  // computed from the actual wrapped text before anything is drawn, so
+  // the row below it never gets overlapped.
   const addr = order.shippingAddress || {};
   const addrLine = [addr.address1, addr.address2, addr.city, addr.zip ? `- ${addr.zip}` : ""]
     .filter(Boolean)
     .join(", ")
     .replace(", -", " -");
-  fitText("CONSIGNEE LOCATION:", c1, y, c2 - c1, { font: "Helvetica-Bold", fontSize: 8 });
-  fitText(addrLine, c2, y, c3 - c2, { font: "Helvetica-Bold", fontSize: 9, minSize: 6 });
-  fitText("DISPATCH", c3, y, c4 - c3, { font: "Helvetica-Bold", fontSize: 8 });
-  fitText(order.dispatch || "", c4, y, pageRight - c4, { font: "Helvetica-Bold", fontSize: 9 });
-  y += rowH;
+  const addrFontSize = 8;
+  const addrTextHeight = measureWrappedHeight(addrLine, c3 - c2, addrFontSize, "Helvetica-Bold");
+  const addrRowHeight = Math.max(rowH, addrTextHeight + 8);
+
+  startRow([c2, c3, c4], addrRowHeight);
+  fitText("CONSIGNEE LOCATION:", c1, y, c2 - c1, { font: "Helvetica-Bold", fontSize: 8, rowHeight: addrRowHeight });
+  fitWrappedText(addrLine, c2, y, c3 - c2, addrRowHeight, { font: "Helvetica-Bold", fontSize: addrFontSize });
+  fitText("DISPATCH", c3, y, c4 - c3, { font: "Helvetica-Bold", fontSize: 8, rowHeight: addrRowHeight });
+  fitText(order.dispatch || "", c4, y, pageRight - c4, { font: "Helvetica-Bold", fontSize: 9, rowHeight: addrRowHeight });
+  y += addrRowHeight;
 
   // ---- Row 6: CONSIGNEE STATE | value | VERIFIED BY | value ----
   startRow([c2, c3, c4]);
@@ -155,12 +189,13 @@ function generateChallanPdf(order, enrichedLineItems, outputDir) {
   // Draw horizontal lines for every row boundary, and vertical dividers
   // per-row based on each row's own declared structure.
   const infoTop = 20;
-  for (let ry = infoTop; ry <= y; ry += rowH) hLine(ry);
+  for (const row of rowTops) hLine(row.top);
+  hLine(y); // bottom of the last row
   vLineSeg(pageLeft, infoTop, y);
   vLineSeg(pageRight, infoTop, y);
   for (const row of rowTops) {
     for (const divider of row.dividers) {
-      vLineSeg(divider, row.top, row.top + rowH);
+      vLineSeg(divider, row.top, row.top + row.height);
     }
   }
 
@@ -183,6 +218,16 @@ function generateChallanPdf(order, enrichedLineItems, outputDir) {
   y += rowH;
 
   // ---- Item rows ----
+  // Two kinds of row: a "header" row shows exactly what was actually
+  // ordered (e.g. "Movie Night Blockbuster Box") with the order
+  // quantity, and doesn't carry price/batch info of its own — it's
+  // there so the challan shows what was sold, not just its raw
+  // ingredients. Below it, one "detail" row per base product (and per
+  // batch, if a product's stock had to split across more than one
+  // batch) shows exactly what was actually pulled from inventory,
+  // slightly indented to read as belonging to the header above it.
+  // Rows with no `kind` (older cached challans, from before this
+  // format existed) render as plain detail rows, same as before.
   let computedTotal = 0;
   const footerReserve = rowH * 2 + 18;
   const minRowsTotal = Math.max(enrichedLineItems.length, 10);
@@ -192,14 +237,22 @@ function generateChallanPdf(order, enrichedLineItems, outputDir) {
   while (itemIndex < minRowsTotal) {
     const item = enrichedLineItems[itemIndex];
     if (item) {
+      const isHeader = item.kind === "header";
       const mrpNum = parseFloat(item.mrp) || 0;
-      computedTotal += mrpNum * item.quantity;
-      fitText(item.title || item.productName || "", tCols.desc, y, tCols.grammage - tCols.desc, { font: "Helvetica", fontSize: 8 });
-      fitText(item.grammage || "", tCols.grammage, y, tCols.mrp - tCols.grammage, { font: "Helvetica", fontSize: 8, align: "center" });
-      fitText(item.mrp ? String(item.mrp) : "", tCols.mrp, y, tCols.batch - tCols.mrp, { font: "Helvetica", fontSize: 8, align: "center" });
-      fitText(item.batchNo || "", tCols.batch, y, tCols.mfg - tCols.batch, { font: "Helvetica", fontSize: 8, align: "center" });
-      fitText(item.mfgDate || "", tCols.mfg, y, tCols.qty - tCols.mfg, { font: "Helvetica", fontSize: 8, align: "center" });
-      fitText(String(item.quantity), tCols.qty, y, pageRight - tCols.qty, { font: "Helvetica", fontSize: 8, align: "center" });
+      computedTotal += mrpNum * (item.quantity || 0);
+
+      const titleFont = isHeader ? "Helvetica-Bold" : "Helvetica";
+      const titleX = isHeader ? tCols.desc : tCols.desc + 10;
+      const titleW = isHeader ? tCols.grammage - tCols.desc : tCols.grammage - tCols.desc - 10;
+      fitText(item.title || item.productName || "", titleX, y, titleW, { font: titleFont, fontSize: 8 });
+
+      if (!isHeader) {
+        fitText(item.grammage || "", tCols.grammage, y, tCols.mrp - tCols.grammage, { font: "Helvetica", fontSize: 8, align: "center" });
+        fitText(item.mrp ? String(item.mrp) : "", tCols.mrp, y, tCols.batch - tCols.mrp, { font: "Helvetica", fontSize: 8, align: "center" });
+        fitText(item.batchNo || "", tCols.batch, y, tCols.mfg - tCols.batch, { font: "Helvetica", fontSize: 8, align: "center" });
+        fitText(item.mfgDate || "", tCols.mfg, y, tCols.qty - tCols.mfg, { font: "Helvetica", fontSize: 8, align: "center" });
+      }
+      fitText(String(item.quantity ?? ""), tCols.qty, y, pageRight - tCols.qty, { font: titleFont, fontSize: 8, align: "center" });
     }
     y += rowH;
     itemIndex++;

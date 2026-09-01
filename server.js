@@ -7,7 +7,7 @@ const crypto = require("crypto");
 const { getOrderById, listRecentOrders } = require("./shopify");
 const { getOrderById: getAmazonOrderById, listRecentOrders: listRecentAmazonOrders } = require("./amazon");
 const { handleWebhook: handleCredWebhook, getOrderById: getCredOrderById, listRecentOrders: listRecentCredOrders } = require("./cred");
-const { deductStock, listProductsForDropdown, resolveWebsiteProduct, resolveCredSku, resolveAmazonProduct } = require("./masterSheet");
+const { deductStock, listProductsForDropdown, resolveWebsiteProduct, resolveCredSku, resolveAmazonProduct, formatSheetDate } = require("./masterSheet");
 const { generateChallanPdf } = require("./generateChallan");
 const { generateInvoicePdf } = require("./generateInvoice");
 const { getPreviousChallan, getAllChallans, recordChallan } = require("./challanLog");
@@ -90,6 +90,76 @@ pollAmazonOrders(); // establish baseline immediately on startup
 setInterval(pollAmazonOrders, AMAZON_POLL_INTERVAL_MS);
 
 // ---- Shopify order list, with download status per order ----
+/**
+ * Builds the challan rows for one originally-ordered line item, in the
+ * two-tier format used across every channel:
+ *   1. A HEADER row showing exactly what the customer ordered (the real
+ *      product title, e.g. "Movie Night Blockbuster Box") and the order
+ *      quantity — this was previously missing entirely, replaced by just
+ *      the resolved base product name, which made it impossible to tell
+ *      what was actually sold.
+ *   2. One DETAIL row per base-product component, per BATCH actually
+ *      drawn from stock. If a component's needed quantity couldn't be
+ *      fully covered by its highest-priority batch, deductStock already
+ *      splits across the next-priority batch — this surfaces each split
+ *      as its own row (batch number, MFG date, and that batch's specific
+ *      quantity) instead of merging them into one line, so a priority-1
+ *      /priority-2 split is visible on the printed challan.
+ *
+ * `components` is the array resolveWebsiteProduct/resolveAmazonProduct/
+ * resolveCredSku returns (one entry per base product a combo maps to;
+ * length 1 for a simple, non-combo product).
+ */
+async function buildChallanRows(orderedTitle, orderedQuantity, components) {
+  const rows = [{ kind: "header", title: orderedTitle, quantity: orderedQuantity }];
+
+  for (const component of components) {
+    const baseQuantityNeeded = orderedQuantity * component.unitsPerPack;
+    const mrpValue = parseFloat(String(component.mrp).replace(/[^0-9.]/g, "")) || 0;
+
+    if (mrpValue === 0) {
+      // Freebie/non-priced item (gift card, coupon, promo item) — lives
+      // in the "Extra" category tab, which has no grammage/MRP columns,
+      // so deduct by name only. Still one row per batch in case even a
+      // freebie's stock spans multiple batches.
+      const batchInfo = await deductStock(component.baseProductName, baseQuantityNeeded);
+      for (const batch of batchInfo.batches) {
+        rows.push({
+          kind: "detail",
+          title: batchInfo.productName,
+          grammage: batchInfo.grammage,
+          mrp: "0",
+          batchNo: batch.batchNumber,
+          mfgDate: formatSheetDate(batch.mfd),
+          quantity: batch.quantity,
+        });
+      }
+      continue;
+    }
+
+    const batchInfo = await deductStock(
+      component.baseProductName,
+      baseQuantityNeeded,
+      component.grammage,
+      component.mrp
+    );
+
+    for (const batch of batchInfo.batches) {
+      rows.push({
+        kind: "detail",
+        title: batchInfo.productName,
+        grammage: batchInfo.grammage,
+        mrp: batchInfo.mrp,
+        batchNo: batch.batchNumber,
+        mfgDate: formatSheetDate(batch.mfd),
+        quantity: batch.quantity,
+      });
+    }
+  }
+
+  return rows;
+}
+
 app.get("/api/shopify/orders", async (req, res) => {
   try {
     const orders = await listRecentOrders(25);
@@ -131,38 +201,8 @@ app.post("/api/shopify/orders/:id/challan", async (req, res) => {
             error: `"${li.title}" has no entry in the Website Product Mapping tab — add it before generating this challan (Website Product Name, Base Product Name, Units Per Pack).`,
           });
         }
-        for (const component of components) {
-          const baseQuantityNeeded = li.quantity * component.unitsPerPack;
-          const mrpValue = parseFloat(String(component.mrp).replace(/[^0-9.]/g, "")) || 0;
-
-          if (mrpValue === 0) {
-            // MRP of 0 marks a non-priced item (freebie, gift card,
-            // coupon) — deduct from the "Extra" category tab by name
-            // only, same convention as Amazon/CRED's freebie handling.
-            const batchInfo = await deductStock(component.baseProductName, baseQuantityNeeded);
-            enrichedLineItems.push({
-              ...li,
-              ...batchInfo,
-              title: batchInfo.productName,
-              quantity: baseQuantityNeeded,
-              mrp: "0",
-            });
-            continue;
-          }
-
-          const batchInfo = await deductStock(
-            component.baseProductName,
-            baseQuantityNeeded,
-            component.grammage,
-            component.mrp
-          );
-          enrichedLineItems.push({
-            ...li,
-            ...batchInfo,
-            title: batchInfo.productName,
-            quantity: baseQuantityNeeded,
-          });
-        }
+        const rows = await buildChallanRows(li.title, li.quantity, components);
+        enrichedLineItems.push(...rows);
       }
       await recordChallan(logKey, enrichedLineItems);
     }
@@ -255,38 +295,8 @@ app.post("/api/amazon/orders/:id/challan", async (req, res) => {
             error: `"${li.title}" has no entry in the Amazon Product Mapping tab — add it before generating this challan (Amazon Product Name, Base Product Name, Units Per Pack).`,
           });
         }
-        for (const component of components) {
-          const baseQuantityNeeded = li.quantity * component.unitsPerPack;
-          const mrpValue = parseFloat(String(component.mrp).replace(/[^0-9.]/g, "")) || 0;
-
-          if (mrpValue === 0) {
-            // MRP of 0 marks a non-priced item (freebie, gift card,
-            // coupon) — deduct from the "Extra" category tab by name
-            // only, same convention as CRED's freebie handling.
-            const batchInfo = await deductStock(component.baseProductName, baseQuantityNeeded);
-            enrichedLineItems.push({
-              ...li,
-              ...batchInfo,
-              title: batchInfo.productName,
-              quantity: baseQuantityNeeded,
-              mrp: "0",
-            });
-            continue;
-          }
-
-          const batchInfo = await deductStock(
-            component.baseProductName,
-            baseQuantityNeeded,
-            component.grammage,
-            component.mrp
-          );
-          enrichedLineItems.push({
-            ...li,
-            ...batchInfo,
-            title: batchInfo.productName,
-            quantity: baseQuantityNeeded,
-          });
-        }
+        const rows = await buildChallanRows(li.title, li.quantity, components);
+        enrichedLineItems.push(...rows);
       }
       await recordChallan(logKey, enrichedLineItems);
     }
@@ -360,39 +370,8 @@ app.post("/api/cred/orders/:id/challan", async (req, res) => {
             error: `CRED SKU "${li.sku || li.title}" has no entry in the CRED SKU Details tab — add it before generating this challan.`,
           });
         }
-        for (const component of components) {
-          const baseQuantityNeeded = li.quantity * component.unitsPerPack;
-          const mrpValue = parseFloat(String(component.mrp).replace(/[^0-9.]/g, "")) || 0;
-
-          if (mrpValue === 0) {
-            // MRP of 0 marks a non-priced item (freebie, gift card, coupon)
-            // — these live in the "Extra" category tab, which has no
-            // MRP/Grammage columns, so deduct by product name only rather
-            // than passing grammage/mrp filters that would never match.
-            const batchInfo = await deductStock(component.baseProductName, baseQuantityNeeded);
-            enrichedLineItems.push({
-              ...li,
-              ...batchInfo,
-              title: batchInfo.productName,
-              quantity: baseQuantityNeeded,
-              mrp: "0",
-            });
-            continue;
-          }
-
-          const batchInfo = await deductStock(
-            component.baseProductName,
-            baseQuantityNeeded,
-            component.grammage,
-            component.mrp
-          );
-          enrichedLineItems.push({
-            ...li,
-            ...batchInfo,
-            title: batchInfo.productName,
-            quantity: baseQuantityNeeded,
-          });
-        }
+        const rows = await buildChallanRows(li.title || li.sku, li.quantity, components);
+        enrichedLineItems.push(...rows);
       }
       await recordChallan(logKey, enrichedLineItems);
     }
@@ -451,12 +430,20 @@ app.post("/api/custom/challan", async (req, res) => {
       // matched when a product has multiple grammage/MRP combinations —
       // without this, deductStock could pick any variant's batch.
       const batchInfo = await deductStock(item.productName, item.quantity, item.grammage, item.mrp);
-      enrichedLineItems.push({
-        title: item.productName,
-        quantity: item.quantity,
-        ...batchInfo,
-        mrp: isSample ? "0" : batchInfo.mrp,
-      });
+      // One row per batch actually drawn from — same reasoning as the
+      // other channels: if stock had to split across a priority-1 and
+      // priority-2 batch, that split should be visible on the challan.
+      for (const batch of batchInfo.batches) {
+        enrichedLineItems.push({
+          kind: "detail",
+          title: batchInfo.productName,
+          grammage: batchInfo.grammage,
+          batchNo: batch.batchNumber,
+          mfgDate: formatSheetDate(batch.mfd),
+          quantity: batch.quantity,
+          mrp: isSample ? "0" : batchInfo.mrp,
+        });
+      }
     }
 
     const order = {

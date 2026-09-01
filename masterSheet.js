@@ -221,9 +221,9 @@ function normalizeMrp(val) {
  * in a mapping tab matches "30" in the category tab.
  */
 async function findProductBatches(productName, grammage = null, mrp = null) {
-  const target = productName.trim().toLowerCase();
+  const target = normalizeForMatch(productName);
   const allTabs = await Promise.all(CATEGORY_TABS.map(loadTab));
-  let matches = allTabs.flat().filter((item) => item.productName.toLowerCase() === target);
+  let matches = allTabs.flat().filter((item) => normalizeForMatch(item.productName) === target);
 
   if (grammage) {
     const targetGrammage = normalizeGrammage(grammage);
@@ -299,7 +299,14 @@ async function deductStock(productName, quantityNeeded, grammage = null, mrp = n
     productType: first.productType,
     grammage: first.grammage,
     mrp: first.mrp,
-    // Multiple batches used for one line item are joined for the challan
+    // Per-batch breakdown, in the order they were actually drawn from
+    // (priority order — a batch with 0 stock is skipped and the next
+    // priority batch is used instead, already handled by the loop
+    // above). Each entry becomes its own row on the challan when a
+    // single product had to be split across multiple batches.
+    batches: usedBatches,
+    // Joined strings kept for any caller that just wants a quick
+    // single-line summary rather than per-batch rows.
     batchNo: usedBatches.map((b) => b.batchNumber).filter(Boolean).join(", "),
     mfgDate: usedBatches.map((b) => formatSheetDate(b.mfd)).filter(Boolean).join(", "),
   };
@@ -355,6 +362,7 @@ module.exports = {
   resolveWebsiteProduct,
   resolveCredSku,
   resolveAmazonProduct,
+  formatSheetDate,
   CATEGORY_TABS,
 };
 
