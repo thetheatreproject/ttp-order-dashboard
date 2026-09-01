@@ -1,5 +1,18 @@
 const { google } = require("googleapis");
 
+/**
+ * Normalizes a product name for matching: collapses any run of whitespace
+ * — including literal line breaks from Alt+Enter, which Google Sheets
+ * cells can contain even when the text just LOOKS like normal word-wrap
+ * — down to a single space, trims, and lowercases. Without this, a sheet
+ * cell that visually reads identically to an order's product title can
+ * still fail to match character-for-character, because one has real
+ * newlines where the other has plain spaces.
+ */
+function normalizeForMatch(s) {
+  return (s || "").replace(/\s+/g, " ").trim().toLowerCase();
+}
+
 // The 5 category tabs from your master file. Same column layout in each
 // (Popcorn has one extra column, EAN Code, handled via header lookup below
 // rather than fixed indices, so it doesn't break the shared logic).
