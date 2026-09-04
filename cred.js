@@ -72,16 +72,31 @@ function isAuthorized(req) {
 }
 
 /**
- * Stores every incoming payload verbatim, regardless of whether we can
- * parse it — this is the safety net while we confirm the real field
- * names. Keyed loosely by whatever looks like an order ID, purely for
- * human scanning of the log; not used for lookups.
+ * CONFIRMED 2026-09-04 against a real order: Easyecom's "Create Order"
+ * webhook sends the payload as a JSON ARRAY of order objects — even when
+ * there's only one order in the call — not a bare object as originally
+ * guessed. This normalizes either shape into an array so the rest of the
+ * module can treat it uniformly.
+ */
+function unwrapOrders(payload) {
+  if (Array.isArray(payload)) return payload;
+  if (payload && typeof payload === "object") return [payload];
+  return [];
+}
+
+/**
+ * Stores every incoming payload verbatim (the raw array, as received) —
+ * this is the safety net so nothing is lost even if normalization below
+ * needs revising later. Keyed loosely by whatever looks like an order ID,
+ * purely for human scanning of the log; not used for lookups.
  */
 async function storeRawPayload(payload) {
   await ensureRawLogTab();
   const sheets = await getSheetsClient();
   const guessedOrderId =
-    payload.order_id || payload.orderId || payload.OrderId || payload.reference_code || "unknown";
+    unwrapOrders(payload)
+      .map((o) => o.order_id || o.reference_code || o.invoice_number || "unknown")
+      .join(", ") || "unknown";
   await sheets.spreadsheets.values.append({
     spreadsheetId: process.env.MASTER_SHEET_ID,
     range: `'${RAW_LOG_TAB}'!A:C`,
@@ -94,81 +109,82 @@ async function storeRawPayload(payload) {
 }
 
 /**
- * Best-effort normalization into the shared order shape (id, orderId,
- * createdAt, customerName, shippingAddress, lineItems, totalPrice, etc).
- * UNVERIFIED against a real payload — field names here are informed
- * guesses based on common Easyecom/order-webhook conventions. Expect to
- * revise this once we see one real "Create Order" call in the raw log.
+ * Normalizes ONE order object (already unwrapped from the array) into the
+ * shared order shape (id, orderId, createdAt, customerName, shippingAddress,
+ * lineItems, totalPrice, etc) — the same shape shopify.js/amazon.js produce,
+ * which generateChallan.js/generateInvoice.js already consume. Field names
+ * below are CONFIRMED against a real Easyecom CRED-API payload received
+ * 2026-09-04 (order_id 611645678 / reference_code 4GXE42JRXLVQ3).
  */
-function normalizeCredOrder(payload) {
-  const orderId = String(
-    payload.order_id || payload.orderId || payload.reference_code || payload.invoice_number || "UNKNOWN"
-  );
+function normalizeCredOrder(order) {
+  const orderId = String(order.order_id || order.reference_code || order.invoice_number || "UNKNOWN");
 
-  const rawItems = payload.order_items || payload.items || payload.line_items || [];
-  const lineItems = rawItems.map((li) => ({
-    sku: li.sku || li.sku_code || li.item_sku,
-    title: li.product_name || li.name || li.item_name,
-    quantity: parseInt(li.quantity || li.qty, 10) || 0,
-    price: li.price || li.selling_price || li.unit_price || "0",
-    unitDiscount: parseFloat(li.discount) || 0,
-  }));
-
-  const shippingAddress = payload.shipping_address || payload.customer_address || {};
+  const rawItems = order.order_items || [];
+  const lineItems = rawItems.map((li) => {
+    const mrp = parseFloat(li.mrp) || 0;
+    const sellingPrice = parseFloat(li.selling_price) || 0;
+    return {
+      sku: li.sku || "",
+      title: li.productName || li.sku || "",
+      quantity: parseInt(li.item_quantity, 10) || 0,
+      price: li.selling_price || "0",
+      // Easyecom doesn't send a discount field directly — derive it from
+      // MRP vs selling price (never negative).
+      unitDiscount: Math.max(0, mrp - sellingPrice),
+    };
+  });
 
   return {
     id: orderId,
     orderId: orderId,
-    createdAt: payload.order_date || payload.created_at || new Date().toISOString(),
-    customerName: payload.customer_name || shippingAddress.name || "N/A",
+    createdAt: order.order_date || new Date().toISOString(),
+    customerName: order.customer_name || order.shipping_name || order.billing_name || "N/A",
     customerOrdersCount: 0,
-    customerPhone: payload.customer_phone || shippingAddress.phone || "",
+    customerPhone: order.contact_num || order.billing_mobile || "",
     shippingAddress: {
-      address1: shippingAddress.address1 || shippingAddress.address_line1 || "",
-      address2: shippingAddress.address2 || shippingAddress.address_line2 || "",
-      city: shippingAddress.city || "",
-      province: shippingAddress.state || shippingAddress.province || "",
-      zip: shippingAddress.pincode || shippingAddress.zip || "",
-      country: shippingAddress.country || "India",
+      address1: order.address_line_1 || "",
+      address2: order.address_line_2 || "",
+      city: order.city || "",
+      province: order.state || "",
+      zip: order.pin_code || "",
+      country: order.country || "India",
     },
     financialStatus: "paid",
     lineItems,
-    totalPrice: (parseFloat(payload.order_total || payload.total_amount) || 0).toFixed(2),
-    _raw: payload, // kept temporarily for debugging while we confirm field names
+    totalPrice: (parseFloat(order.total_amount) || 0).toFixed(2),
+    _raw: order,
   };
 }
 
 /**
  * Handles one incoming webhook call: verifies auth, stores the raw
- * payload, and returns the best-effort normalized order (or throws if
- * unauthorized). Called from the /webhooks/cred-orders route in
- * server.js.
+ * payload, and returns the best-effort normalized order(s) (or throws if
+ * unauthorized). Returns an ARRAY since Easyecom's payload is an array
+ * and could in principle contain more than one order in a single call.
+ * Called from the /webhooks/cred-orders route in server.js.
  */
 async function handleWebhook(req) {
-  // TEMPORARY DEBUG LOG — remove once the real auth header format is
-  // confirmed. Logs unconditionally (before the auth check) so a failed
-  // attempt still tells us exactly what Easyecom sent.
-  console.log("CRED webhook incoming headers:", JSON.stringify(req.headers));
-  console.log(
-    "CRED webhook expected secret set?",
-    Boolean(process.env.CRED_WEBHOOK_SECRET),
-    "| expected length:",
-    (process.env.CRED_WEBHOOK_SECRET || "").length
-  );
-
   if (!isAuthorized(req)) {
     const err = new Error("Unauthorized");
     err.statusCode = 401;
     throw err;
   }
   await storeRawPayload(req.body);
-  return normalizeCredOrder(req.body);
+  const orders = unwrapOrders(req.body).map(normalizeCredOrder);
+  if (orders.length === 0) {
+    const err = new Error("Empty CRED webhook payload");
+    err.statusCode = 400;
+    throw err;
+  }
+  return orders;
 }
 
 /**
  * Lists recently received CRED orders by reading back through the raw
  * log and normalizing each row — since there's no separate "list orders"
  * API to call (Easyecom only pushes to us), this log IS the order list.
+ * Each row's payload is itself an array (Easyecom's shape), so this
+ * flattens across rows and across orders within a row.
  */
 async function listRecentOrders(limit = 25) {
   await ensureRawLogTab();
@@ -178,15 +194,13 @@ async function listRecentOrders(limit = 25) {
     range: `'${RAW_LOG_TAB}'!A2:C`,
   });
   const rows = res.data.values || [];
-  const orders = rows
-    .map((row) => {
-      try {
-        return normalizeCredOrder(JSON.parse(row[2]));
-      } catch {
-        return null;
-      }
-    })
-    .filter(Boolean);
+  const orders = rows.flatMap((row) => {
+    try {
+      return unwrapOrders(JSON.parse(row[2])).map(normalizeCredOrder);
+    } catch {
+      return [];
+    }
+  });
 
   // Most recently received first
   orders.reverse();

@@ -238,10 +238,11 @@ app.post("/api/shopify/orders/:id/invoice", async (req, res) => {
 // ---- CRED order webhook (from Easyecom, which aggregates CRED-API orders) ----
 app.post("/webhooks/cred-orders", async (req, res) => {
   try {
-    const order = await handleCredWebhook(req);
-    console.log(`New CRED order webhook received: ${order.orderId}`);
-    console.log("Raw CRED webhook payload:", JSON.stringify(req.body));
-    broadcastSSE({ type: "new_cred_order", orderId: order.orderId });
+    const orders = await handleCredWebhook(req);
+    for (const order of orders) {
+      console.log(`New CRED order webhook received: ${order.orderId}`);
+      broadcastSSE({ type: "new_cred_order", orderId: order.orderId });
+    }
     res.status(200).send("OK");
   } catch (err) {
     if (err.statusCode === 401) {
