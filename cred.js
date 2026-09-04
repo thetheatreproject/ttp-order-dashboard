@@ -145,6 +145,17 @@ function normalizeCredOrder(payload) {
  * server.js.
  */
 async function handleWebhook(req) {
+  // TEMPORARY DEBUG LOG — remove once the real auth header format is
+  // confirmed. Logs unconditionally (before the auth check) so a failed
+  // attempt still tells us exactly what Easyecom sent.
+  console.log("CRED webhook incoming headers:", JSON.stringify(req.headers));
+  console.log(
+    "CRED webhook expected secret set?",
+    Boolean(process.env.CRED_WEBHOOK_SECRET),
+    "| expected length:",
+    (process.env.CRED_WEBHOOK_SECRET || "").length
+  );
+
   if (!isAuthorized(req)) {
     const err = new Error("Unauthorized");
     err.statusCode = 401;
