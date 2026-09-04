@@ -393,7 +393,35 @@ module.exports = {
  * treat this as "we don't know how to deduct stock for this product"
  * rather than guessing, same reasoning as resolveWebsiteProduct.
  */
-async function resolveCredSku(credSkuOrName) {
+/**
+ * Easyecom order SKUs/product names sometimes carry a leading catalog
+ * code before the description, e.g. "CC59430060-cheese and caramel 330
+ * gm gourmet popcorn - pack of 6", which won't exact-match the plain
+ * description in the "Cred Product Name" column. That code isn't a
+ * stable identifier we can rely on (it can change), so rather than
+ * parsing it out precisely, this returns both the raw string and a
+ * "prefix stripped" version (everything after the first hyphen) as
+ * candidates — whichever one matches a row wins.
+ */
+function credMatchCandidates(str) {
+  const trimmed = str.trim().toLowerCase();
+  const candidates = [trimmed];
+  const hyphenIndex = trimmed.indexOf("-");
+  if (hyphenIndex > -1) {
+    const afterHyphen = trimmed.slice(hyphenIndex + 1).trim();
+    if (afterHyphen) candidates.push(afterHyphen);
+  }
+  return candidates;
+}
+
+/**
+ * credSkuOrNames accepts either a single string or an array of candidate
+ * strings (e.g. both the order's sku and productName) — tried in order,
+ * first one that matches a row wins. This way a fix landing on either
+ * field is enough to resolve, and an unstable/absent catalog-code prefix
+ * on either field doesn't block matching (see credMatchCandidates).
+ */
+async function resolveCredSku(credSkuOrNames) {
   const cached = getCachedTab(CRED_MAPPING_TAB);
   let rows;
   if (cached) {
@@ -415,7 +443,8 @@ async function resolveCredSku(credSkuOrName) {
   const mrpCol = header.indexOf("MRP");
   const unitsCol = header.indexOf("Units Per Pack");
 
-  const target = credSkuOrName.trim().toLowerCase();
+  const inputs = Array.isArray(credSkuOrNames) ? credSkuOrNames : [credSkuOrNames];
+  const targets = inputs.filter(Boolean).flatMap(credMatchCandidates);
   const components = [];
 
   // Cred Product Name is only filled in on the first row of each
@@ -431,7 +460,7 @@ async function resolveCredSku(credSkuOrName) {
     }
     if (!currentProductName) continue;
 
-    if (currentProductName.toLowerCase() === target) {
+    if (targets.includes(currentProductName.toLowerCase())) {
       const baseProductName = baseCol >= 0 ? row[baseCol] : null;
       if (!baseProductName || !baseProductName.trim()) continue; // skip blank spacer rows
       components.push({

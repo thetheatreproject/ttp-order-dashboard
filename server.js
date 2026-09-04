@@ -365,7 +365,7 @@ app.post("/api/cred/orders/:id/challan", async (req, res) => {
         // CRED SKUs can be combos of multiple base products — resolveCredSku
         // returns one or more base-product components per SKU, unlike
         // resolveWebsiteProduct which is always a single product.
-        const components = await resolveCredSku(li.sku || li.title);
+        const components = await resolveCredSku([li.sku, li.title]);
         if (!components) {
           return res.status(422).json({
             error: `CRED SKU "${li.sku || li.title}" has no entry in the CRED SKU Details tab — add it before generating this challan.`,
