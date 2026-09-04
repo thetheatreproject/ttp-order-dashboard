@@ -442,7 +442,7 @@ app.post("/api/custom/challan", async (req, res) => {
           batchNo: batch.batchNumber,
           mfgDate: formatSheetDate(batch.mfd),
           quantity: batch.quantity,
-          mrp: isSample ? "0" : batchInfo.mrp,
+          mrp: batchInfo.mrp,
         });
       }
     }
