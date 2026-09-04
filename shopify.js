@@ -95,6 +95,8 @@ function normalizeOrder(order) {
     customerPhone: order.shipping_address?.phone || order.customer?.phone || order.phone || "",
     shippingAddress: order.shipping_address,
     financialStatus: order.financial_status || "",
+    cancelledAt: order.cancelled_at || null,
+    cancelReason: order.cancel_reason || null,
     lineItems: order.line_items.map((li) => ({
       sku: li.sku,
       title: li.title,
