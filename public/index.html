@@ -196,7 +196,7 @@
     try {
       const res = await fetch('/api/shopify/orders');
       const orders = await res.json();
-      const newCount = orders.filter(o => !o.downloaded).length;
+      const newCount = orders.filter(o => !o.downloaded && !o.cancelledAt).length;
       document.getElementById('shopify-badge').textContent = newCount + ' new';
     } catch (e) {
       document.getElementById('shopify-badge').textContent = 'error';
@@ -216,6 +216,18 @@
         const row = document.createElement('div');
         row.className = 'order-row';
         const date = new Date(order.createdAt).toLocaleDateString('en-IN');
+        if (order.cancelledAt) {
+          row.innerHTML = `
+            <span class="dot" style="background:#c0392b;"></span>
+            <div class="order-info" style="opacity:0.6; text-decoration: line-through;">
+              <p class="order-id">${order.orderId} — ${order.customerName || ''}</p>
+              <p class="order-meta">${date}, Rs ${order.totalPrice}</p>
+            </div>
+            <span class="mini-btn" style="background:#c0392b; opacity:0.85; pointer-events:none;">Cancelled</span>
+          `;
+          list.appendChild(row);
+          continue;
+        }
         row.innerHTML = `
           <span class="dot ${order.downloaded ? 'dot-done' : 'dot-new'}"></span>
           <div class="order-info">
